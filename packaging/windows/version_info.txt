@@ -1,0 +1,43 @@
+# Windows version resource for NeuraBreak.
+#
+# Embedded into NeuraBreak.exe by PyInstaller so File Explorer and Task
+# Manager show sensible metadata in the Properties → Details tab.
+#
+# VSVersionInfo format as expected by PyInstaller.
+# Update version tuples and strings when bumping the release version.
+
+VSVersionInfo(
+    ffi=FixedFileInfo(
+        filevers=(0, 1, 0, 0),
+        prodvers=(0, 1, 0, 0),
+        mask=0x3F,
+        flags=0x0,
+        OS=0x40004,      # VOS_NT_WINDOWS32
+        fileType=0x1,    # VFT_APP
+        subtype=0x0,
+        date=(0, 0),
+    ),
+    kids=[
+        StringFileInfo(
+            [
+                StringTable(
+                    "040904B0",   # Language: en-US, Code page: Unicode
+                    [
+                        StringStruct("CompanyName",      "NeuraBreak Contributors"),
+                        StringStruct("FileDescription",  "NeuraBreak — AI-Powered Break & Posture Guardian"),
+                        StringStruct("FileVersion",      "0.1.0.0"),
+                        StringStruct("InternalName",     "NeuraBreak"),
+                        StringStruct("LegalCopyright",   "MIT License — Copyright NeuraBreak Contributors"),
+                        StringStruct("OriginalFilename", "NeuraBreak.exe"),
+                        StringStruct("ProductName",      "NeuraBreak"),
+                        StringStruct("ProductVersion",   "0.1.0"),
+                        StringStruct("Comments",
+                            "Privacy-first AI posture guardian. "
+                            "100% local — no cloud, no account required."),
+                    ]
+                )
+            ]
+        ),
+        VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+    ]
+)

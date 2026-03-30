@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=NeuraBreak
+GenericName=Posture & Break Guardian
+Comment=AI-powered break reminders and posture monitoring
+Exec=neurabreak
+Icon=neurabreak
+Terminal=false
+Categories=Utility;Monitor;Health;
+Keywords=posture;break;health;eye;fatigue;ergonomics;
+StartupNotify=false
+StartupWMClass=neurabreak

@@ -1,0 +1,18 @@
+# path: ./data/splits  (relative to this file)
+#
+# This is the YOLO dataset config for NeuraBreak.
+# Populate data/ using the collection and annotation pipeline.
+# Then run: python training/train.py
+
+path: ./data/splits
+train: train/images
+val: val/images
+test: test/images
+
+nc: 4   # number of classes
+
+names:
+  0: face_present   # face bounding box — confirms presence, posture neutral
+  1: posture_good   # upright, shoulders back, head level
+  2: posture_bad    # any bad posture: slouch, head-forward, tilt, too-close, etc.
+  3: person_absent  # seat visible but no person detected

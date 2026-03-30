@@ -1,0 +1,119 @@
+name: Windows Installer CI
+
+# Builds the PyInstaller bundle + Inno Setup installer on every Git tag
+# that looks like a version (e.g. v0.1.0, v1.2.3-beta.1).
+
+# The resulting NeuraBreak-<version>-Setup.exe is uploaded as a workflow
+# artifact for validation.
+#
+# GitHub Release publishing is temporarily paused due to Windows installer
+# stability issues. It will be re-enabled in a future update.
+#
+# Also runs on push to main and on PRs (build-only)
+# so we catch regressions early.
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]*"
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+
+    steps:
+      # 1. Checkout
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for version tags
+
+      # 2. Python + uv
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      # 3. Install runtime + packaging deps (no training stack)
+      - name: Install dependencies
+        run: |
+          uv sync --extra ai --extra audio --extra data --extra system
+          uv pip install pyinstaller
+
+      # 4. Generate placeholder sounds if not pre-built
+      #    (CI doesn't have sounddevice hardware; the script runs headlessly)
+      - name: Generate built-in sounds (if missing)
+        run: |
+          $soundsDir = "src\neurabreak\ui\assets\sounds"
+          $expectedFiles = @("chime_soft.wav", "tibetan_bowl.wav", "nature_forest.wav", "break_end.wav")
+          $missing = $expectedFiles | Where-Object { -not (Test-Path "$soundsDir\$_") }
+          if ($missing.Count -gt 0) {
+            uv run python tools/generate_sounds.py
+          } else {
+            Write-Host "All sounds present, skipping generation."
+          }
+
+      # 5. PyInstaller one-folder build
+      - name: Build with PyInstaller
+        run: uv run pyinstaller packaging/windows/build.spec --noconfirm --log-level WARN
+
+      - name: Verify build output
+        run: |
+          if (-not (Test-Path "dist\NeuraBreak\NeuraBreak.exe")) {
+            Write-Error "PyInstaller output missing: dist\NeuraBreak\NeuraBreak.exe"
+            exit 1
+          }
+          Write-Host "Build OK — $(Get-ChildItem dist\NeuraBreak -Recurse | Measure-Object -Sum Length | Select-Object -ExpandProperty Sum) bytes total"
+
+      # 6. Inno Setup installer
+      - name: Install Inno Setup 6
+        run: |
+          $uri = "https://files.jrsoftware.org/is/6/innosetup-6.3.3.exe"
+          Invoke-WebRequest -Uri $uri -OutFile "innosetup.exe"
+          Start-Process -FilePath "innosetup.exe" `
+            -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" `
+            -Wait
+          Remove-Item "innosetup.exe"
+
+      - name: Compile Inno Setup installer
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc packaging\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify installer output
+        run: |
+          $installer = Get-ChildItem dist\installer\*.exe | Select-Object -First 1
+          if (-not $installer) {
+            Write-Error "Installer .exe not found in dist\installer\"
+            exit 1
+          }
+          Write-Host "Installer: $($installer.FullName)  ($($installer.Length) bytes)"
+
+      # 7. Upload build artifact (available on every run, not just tags)
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeuraBreak-Windows-installer
+          path: dist/installer/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      # 8. Keep tag builds visible while public release publishing is paused
+      - name: Release publishing paused
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          Write-Host "GitHub release publishing is temporarily paused due to Windows installer stability issues."
+          Write-Host "Installer releases will return in a future update."

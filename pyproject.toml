@@ -1,0 +1,121 @@
+[project]
+name = "neurabreak"
+version = "0.1.0"
+description = "AI-powered break & posture guardian — 100% local, no cloud"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["posture", "break-reminder", "yolo", "computer-vision", "health", "wellbeing"]
+classifiers = [
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "PySide6>=6.6.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "structlog>=24.0.0",
+    "colorama>=0.4.6; sys_platform == 'win32'",
+    "colorama>=0.4.6",
+]
+
+[project.optional-dependencies]
+# detection pipeline
+ai = [
+    "ultralytics>=8.0.0",
+    "onnxruntime>=1.17.0",
+    "opencv-python>=4.9.0",
+]
+# audio alerts
+audio = [
+    "sounddevice>=0.4.6",
+    "soundfile>=0.12.0",
+]
+# health journal (SQLite)
+data = [
+    "sqlalchemy>=2.0.0",
+]
+# OS notifications, keyboard hook, state machine, system stats
+system = [
+    "plyer>=2.1.0",
+    "psutil>=5.9.0",
+    "pynput>=1.7.6",
+    "transitions>=0.9.0",
+    "windows-toasts>=1.1.0; sys_platform == 'win32'",
+]
+# Everything enabled at once
+full = [
+    "neurabreak[ai,audio,data,system]",
+]
+# Dev tooling
+dev = [
+    "pytest>=8.0.0",
+    "pytest-qt>=4.3.0",
+    "ruff>=0.3.0",
+    "mypy>=1.9.0",
+    "pre-commit>=3.7.0",
+    "pip-audit>=2.7.0",
+]
+# Windows packaging
+packaging = [
+    "pyinstaller>=6.3.0",
+]
+# ML training pipeline (separate, heavy)
+training = [
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+    "wandb>=0.16.0",
+    "albumentations>=1.3.0",
+    "jupyter>=1.0.0",
+    "roboflow>=1.1.0",
+]
+
+[project.scripts]
+neurabreak = "neurabreak.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/neurabreak"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "tools", "training"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = [
+    "E501",   # line length handled by formatter
+    "B008",   # function call in default arg (common in Pydantic)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["neurabreak"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+check_untyped_defs = true
+no_implicit_optional = true
+# Exclude heavy optional deps that won't be installed in CI baseline
+exclude = ["training/", "tools/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

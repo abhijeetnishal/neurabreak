@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+      - run: uv sync --extra dev
+      - name: Ruff lint
+        run: uv run ruff check src/ tests/ tools/
+      - name: Ruff format check
+        run: uv run ruff format --check src/ tests/ tools/
+      - name: Mypy
+        run: uv run mypy src/neurabreak/
+
+  test:
+    name: Tests (${{ matrix.os }}, py${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run tests
+        # Qt requires a display — on Linux we use a virtual framebuffer
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt-get install -y libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
+                                    libxcb-keysyms1 libxcb-render-util0 xvfb
+            export QT_QPA_PLATFORM=offscreen
+          fi
+          uv run pytest tests/unit tests/integration -v --tb=short
+        shell: bash
+
+  # Build artifacts (only on main branch merges)
+  build:
+    name: Build (${{ matrix.os }})
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true  # pull model files tracked with Git LFS
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+      - run: uv sync
+      - name: PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        run: uv run pyinstaller packaging/windows/build.spec --noconfirm
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurabreak-${{ runner.os }}
+          path: dist/
+
+  release:
+    name: GitHub Release (paused)
+    needs: build
+    # Temporarily disabled while Windows installer reliability issues are resolved.
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release publishing is paused
+        run: echo "GitHub release publishing is temporarily paused and will return in a future update."
