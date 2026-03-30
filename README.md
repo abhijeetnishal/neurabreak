@@ -38,7 +38,7 @@ If that's worth anything to you — even if you haven't tried it yet — **[a st
 
 ## Demo
 
-![Quick Demo](assets/demo/quick_demo.mp4)
+<video src="assets/demo/quick_demo.mp4" controls width="600"></video>
 
 
 
