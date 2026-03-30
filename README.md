@@ -38,8 +38,7 @@ If that's worth anything to you — even if you haven't tried it yet — **[a st
 
 ## Demo
 
-<video src="assets/demo/quick_demo.mp4" controls width="600"></video>
-
+https://github.com/user-attachments/assets/2c2e2add-cef6-46a9-b1ac-df92bbd12251
 
 
 ## Features
