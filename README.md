@@ -38,8 +38,7 @@ If that's worth anything to you — even if you haven't tried it yet — **[a st
 
 ## Demo
 
-<video src="assets/demo/quick_demo.mp4" controls width="600"></video>
-
+https://github.com/user-attachments/assets/2c2e2add-cef6-46a9-b1ac-df92bbd12251
 
 
 ## Features
@@ -148,7 +147,7 @@ A coloured dot appears in your system tray. Right-click it to access the full me
 | 🔴 Red      | Break due |
 
 
-
+<!--
 ## Windows Installer (Temporarily Paused)
 
 A standalone one-click installer is built with PyInstaller + Inno Setup for contributor validation.
@@ -200,7 +199,7 @@ Minimum validation checklist for contributors:
 - Uninstaller runs successfully.
 
 Pre-built Windows installers are temporarily not published on the [Releases page](https://github.com/abhijeetnishal/neurabreak/releases). Publishing will be re-enabled in a future update.
-
+-->
 
 ## Architecture
 
