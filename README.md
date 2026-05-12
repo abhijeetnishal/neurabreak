@@ -318,10 +318,13 @@ uv run mypy src/
 
 Meaningful contributions only — please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
 
+Please prioritise primary roadmap work before small issues. The most useful PRs should map directly to the [Roadmap](#roadmap), especially custom model training, packaging, update/autostart stability, platform support, and the plugin system.
+
 > **Please avoid:** README/doc-only PRs, adding screenshots or GIFs, or cosmetic changes. Every PR should ship working code, features, or a real bug fix.
 
 **High-value contributions:**
 
+- 🚀 **Roadmap issues and features** — choose work from the [Roadmap](#roadmap) before picking small cleanup tasks
 - 🐛 **Bug fixes** — open an [issue](https://github.com/abhijeetnishal/neurabreak/issues) first, then submit a PR with a regression test
 - 💡 **Feature implementations** — discuss in an [issue](https://github.com/abhijeetnishal/neurabreak/issues) before building
 - 🧠 **Custom model training** — annotate posture frames and contribute a trained YOLO26 `.pt` / `.onnx` model

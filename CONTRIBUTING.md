@@ -2,6 +2,8 @@
 
 Thanks for your interest! Contributions are welcome — code, bug reports, dataset frames.
 
+Please prioritise primary roadmap issues and features before small cleanup tasks. Start with the [Roadmap](README.md#roadmap) and pick work that moves one of those items forward, such as custom model training, packaging, update/autostart stability, platform support, or the plugin system.
+
 ## Getting Started
 
 1. Fork the repo and clone your fork
@@ -14,6 +16,12 @@ Thanks for your interest! Contributions are welcome — code, bug reports, datas
 4. Make your changes
 5. Run the test suite: `uv run pytest tests/ -v`
 6. Commit and push, then open a PR
+
+## Choosing What to Work On
+
+- Prefer roadmap-linked issues and features over small issues, cosmetic changes, or docs-only work
+- Open or comment on an issue before starting a larger feature so scope can be agreed up front
+- Small fixes are welcome when they unblock roadmap work, fix a real bug, or are requested by maintainers
 
 ## Code Style
 
