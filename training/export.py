@@ -51,6 +51,7 @@ def export_model(
                     opset=17,
                     dynamic=False,    # fixed batch=1 for desktop app
                     half=False,       # stay FP32 for CPU; DML also prefers FP32
+                    nms=True,         # runtime expects xyxy, confidence, class rows
                 )
             elif fmt == "tensorrt":
                 # TensorRT FP16 — NVIDIA only, ~5-10× faster than ONNX on RTX GPUs

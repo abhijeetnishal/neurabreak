@@ -65,6 +65,28 @@ class TestSmartPause:
             sm.process(present=False, posture_class=None, confidence=0.0)
         assert sm.state == AppState.MONITORING
 
+    def test_resume_keeps_accumulated_active_time(self):
+        sm = make_sm(fps=5, smart_pause_sec=2)
+        for _ in range(10):
+            sm.process(present=True, posture_class="posture_good", confidence=0.9)
+
+        started = time.monotonic() - 30
+        sm.session_started_at = started
+        sm._active_segment_started_at = started
+
+        for _ in range(10):
+            sm.process(present=False, posture_class=None, confidence=0.0)
+
+        paused_elapsed = sm.session_elapsed_sec
+        assert sm.state == AppState.IDLE
+        assert paused_elapsed >= 30
+
+        for _ in range(10):
+            sm.process(present=True, posture_class="posture_good", confidence=0.9)
+
+        assert sm.state == AppState.MONITORING
+        assert sm.session_elapsed_sec >= paused_elapsed
+
 
 class TestPostureAlert:
     def test_bad_posture_triggers_alert_after_threshold(self):

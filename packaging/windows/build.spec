@@ -48,19 +48,17 @@ logo_svg = ROOT / "assets" / "logo" / "neurabreak_logo.svg"
 if logo_svg.exists():
     datas.append((str(logo_svg), "assets/logo"))
 
-# ONNX model — prefer the fine-tuned one; fall back to placeholder .pt
+# ONNX model. The packaged app excludes torch/ultralytics, so fail fast
+# unless the runtime ONNX model exists.
 onnx_model = ROOT / "models" / "neurabreak.onnx"
-pt_model_26 = ROOT / "yolo26n.pt"
-pt_model_fallback = ROOT / "models" / "yolo26n.pt"
 
 if onnx_model.exists():
     datas.append((str(onnx_model), "models"))
-elif pt_model_26.exists():
-    datas.append((str(pt_model_26), "."))   # lands in same dir as exe
-elif pt_model_fallback.exists():
-    datas.append((str(pt_model_fallback), "models"))
 else:
-    print("WARNING: No model file found at build time — the app will start in stub mode.")
+    raise SystemExit(
+        "ERROR: Windows packaging requires models/neurabreak.onnx. "
+        "Export it with `python training/export.py --format onnx` before building."
+    )
 
 # onnxruntime data files (schema, config JSON, etc.) — dynamic libs are
 # handled by pyinstaller-hooks-contrib; we collect the data portion here.

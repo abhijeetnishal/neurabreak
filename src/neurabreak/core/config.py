@@ -137,8 +137,18 @@ class AudioConfig(BaseModel):
 
 class PrivacyConfig(BaseModel):
     store_detections: bool = True
-    encrypt_database: bool = True
+    encrypt_database: bool = False
     anonymous_telemetry: bool = False  # always off by default; user must explicitly opt in
+
+    @field_validator("encrypt_database")
+    @classmethod
+    def encryption_is_not_supported(cls, v: bool) -> bool:
+        if v:
+            log.warning(
+                "database_encryption_not_supported",
+                action="using_plain_sqlite",
+            )
+        return False
 
     @model_validator(mode="after")
     def telemetry_is_opt_in(self) -> PrivacyConfig:
@@ -272,7 +282,7 @@ def _write_default_config(path: Path, cfg: AppConfig) -> None:
 
     [privacy]
     store_detections    = {str(cfg.privacy.store_detections).lower()}   # Save detection events to the local DB.
-    encrypt_database    = {str(cfg.privacy.encrypt_database).lower()}   # AES-256 encrypt the health journal.
+    encrypt_database    = {str(cfg.privacy.encrypt_database).lower()}   # Reserved; local SQLite is not encrypted.
     anonymous_telemetry = {str(cfg.privacy.anonymous_telemetry).lower()}  # Send anonymous usage stats. Off by default.
 
     [ui]

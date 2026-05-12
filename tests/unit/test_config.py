@@ -91,6 +91,14 @@ class TestConfigManager:
         manager = ConfigManager.load(path=tmp_path / "config.toml")
         assert manager.config.privacy.anonymous_telemetry is False
 
+    def test_database_encryption_is_disabled_until_supported(self, tmp_path):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text("[privacy]\nencrypt_database = true\n", encoding="utf-8")
+
+        manager = ConfigManager.load(path=config_path)
+
+        assert manager.config.privacy.encrypt_database is False
+
 
 class TestDefaultConfigFileContent:
     def test_default_config_file_is_valid_toml(self, tmp_path):

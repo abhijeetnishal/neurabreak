@@ -108,6 +108,19 @@ class TestDetectionServiceLifecycle:
         service.stop()
         service.stop()  # should not raise
 
+    def test_timer_reminder_service_drives_state_machine_without_camera(self):
+        from neurabreak.core.config import AppConfig
+        from neurabreak.ai.detection_service import TimerReminderService
+
+        sm = PostureStateMachine(fps=5)
+        service = TimerReminderService(sm, AppConfig())
+
+        service.start()
+        time.sleep(2.4)
+        service.stop()
+
+        assert sm.state == AppState.MONITORING
+
 
 class TestDetectionServicePipeline:
     def test_presence_results_feed_state_machine(self):

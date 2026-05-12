@@ -10,6 +10,7 @@ The only side effects that reach the UI happen via the event bus.
 from __future__ import annotations
 
 import threading
+import time
 from typing import TYPE_CHECKING
 
 import structlog
@@ -270,3 +271,84 @@ class DetectionService:
             frames_processed=self._frames_processed,
             frames_skipped=self._frames_skipped,
         )
+
+
+class TimerReminderService:
+    """Timer-only reminder driver used when AI/camera dependencies are absent.
+
+    Minimal installs still need session ticks so scheduled break and eye-rest
+    reminders work. This service deliberately reports a neutral, present user
+    at the configured FPS and does not touch the camera or inference engine.
+    """
+
+    def __init__(
+        self,
+        state_machine: PostureStateMachine,
+        config: AppConfig,
+    ) -> None:
+        self.state_machine = state_machine
+        self.config = config
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._running = False
+        self._ticks_processed = 0
+        self._frame_sink = None
+
+    def start(self) -> None:
+        if self._running:
+            log.warning("timer_reminder_service_already_running")
+            return
+
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._tick_loop,
+            name="ReminderTimer",
+            daemon=True,
+        )
+        self._thread.start()
+        self._running = True
+
+    def stop(self) -> None:
+        if not self._running:
+            return
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=3.0)
+        self._running = False
+        log.info("timer_reminder_service_stopped", ticks_processed=self._ticks_processed)
+
+    def set_frame_sink(self, callback) -> None:
+        """Accept the preview callback for API compatibility; it is unused."""
+        self._frame_sink = callback
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    @property
+    def last_latency_ms(self) -> float:
+        return 0.0
+
+    def _tick_loop(self) -> None:
+        while not self._stop_event.is_set():
+            fps = max(1, int(getattr(self.config.detection, "fps", 5)))
+            self.state_machine.process(
+                present=True,
+                posture_class="face_present",
+                confidence=1.0,
+            )
+            self._ticks_processed += 1
+            bus.publish(
+                Event(
+                    EventType.DETECTION_COMPLETE,
+                    {
+                        "presence": True,
+                        "posture_class": "face_present",
+                        "confidence": 1.0,
+                        "latency_ms": 0.0,
+                        "phone_detected": False,
+                        "timer_only": True,
+                    },
+                )
+            )
+            self._stop_event.wait(timeout=1.0 / fps)

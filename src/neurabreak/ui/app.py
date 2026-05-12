@@ -14,6 +14,7 @@ Threading model:
 from __future__ import annotations
 
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 import structlog
@@ -26,6 +27,24 @@ log = structlog.get_logger()
 
 # Assets directory relative to this file (ui/assets/)
 _ASSETS_DIR = Path(__file__).parent / "assets"
+
+
+def _ai_runtime_available(model_path: str) -> bool:
+    """Return True when installed extras can run the configured camera AI path."""
+    if find_spec("cv2") is None:
+        return False
+
+    uses_onnx = model_path.lower().endswith(".onnx")
+    if not model_path:
+        uses_onnx = (
+            (Path("models") / "neurabreak.onnx").exists()
+            or bool(getattr(sys, "frozen", False))
+        )
+
+    if uses_onnx:
+        return find_spec("onnxruntime") is not None
+
+    return find_spec("ultralytics") is not None
 
 
 class _QuitEventGuard(QObject):
@@ -68,6 +87,7 @@ class NeuraBreakApp:
         self._break_screen = None
         self._journal = None
         self._db = None
+        self._state_machine = None
         self._quit_guard = None
         self._explicit_quit_requested = False
 
@@ -164,6 +184,7 @@ class NeuraBreakApp:
             smart_pause_sec=config.breaks.smart_pause_sec,
             eye_break_interval_min=config.breaks.eye_break_interval_min,
         )
+        self._state_machine = state_machine
 
         # Tray icon
         from neurabreak.ui.tray import NeuraBreakTray
@@ -220,30 +241,41 @@ class NeuraBreakApp:
 
         self._break_screen.on_break_taken(lambda: audio.play_builtin("break_end"))
 
-        from neurabreak.ai.camera import FrameCaptureService
-        from neurabreak.ai.detection_service import DetectionService
-        from neurabreak.ai.engine import InferenceEngine
+        from neurabreak.ai.detection_service import DetectionService, TimerReminderService
 
-        camera = FrameCaptureService(
-            camera_index=0,
-            fps=config.detection.fps,
-        )
-        engine = InferenceEngine(
-            model_path=config.detection.model_path,
-            confidence_threshold=config.detection.confidence_threshold,
-            model_variant=config.detection.model_variant,
-            device=getattr(config.detection, "device", "auto"),
-            use_half=getattr(config.detection, "use_half", True),
-            imgsz=getattr(config.detection, "imgsz", 320),
-        )
+        if _ai_runtime_available(config.detection.model_path):
+            from neurabreak.ai.camera import FrameCaptureService
+            from neurabreak.ai.engine import InferenceEngine
 
-        self._detection_service = DetectionService(
-            camera=camera,
-            engine=engine,
-            state_machine=state_machine,
-            config=config,
-            journal=journal,
-        )
+            camera = FrameCaptureService(
+                camera_index=0,
+                fps=config.detection.fps,
+            )
+            engine = InferenceEngine(
+                model_path=config.detection.model_path,
+                confidence_threshold=config.detection.confidence_threshold,
+                model_variant=config.detection.model_variant,
+                device=getattr(config.detection, "device", "auto"),
+                use_half=getattr(config.detection, "use_half", True),
+                imgsz=getattr(config.detection, "imgsz", 320),
+            )
+
+            self._detection_service = DetectionService(
+                camera=camera,
+                engine=engine,
+                state_machine=state_machine,
+                config=config,
+                journal=journal,
+            )
+        else:
+            log.warning(
+                "ai_runtime_unavailable_using_timer_reminders",
+                hint="Install AI extras for posture detection: uv sync --extra ai",
+            )
+            self._detection_service = TimerReminderService(
+                state_machine=state_machine,
+                config=config,
+            )
 
         from neurabreak.core.events import Event, EventType, bus
 
@@ -294,18 +326,28 @@ class NeuraBreakApp:
                 EventType.SESSION_ENDED,
                 lambda _: journal.end_session(),
             )
-            # Also end the session when smart-pause kicks in (person stepped away).
-            # SESSION_ENDED is only published on explicit session end; SESSION_PAUSED
-            # is the common path, so we close the journal record here too.
+
+            # Smart/manual pauses freeze the current journal row instead of ending
+            # it. SESSION_RESUMED keeps using the same row so compliance and
+            # active-time summaries match the state machine's paused timer.
             bus.subscribe(
                 EventType.SESSION_PAUSED,
-                lambda _: journal.end_session(),
+                lambda e: journal.update_current_session(
+                    active_seconds=int(e.data.get("session_elapsed_sec", state_machine.session_elapsed_sec))
+                ),
             )
-            # Resume journal session when smart-pause ends and monitoring restarts.
-            bus.subscribe(
-                EventType.SESSION_RESUMED,
-                lambda _: journal.start_session(),
-            )
+            _last_journal_active_update: list[float] = [0.0]
+
+            def _on_detection_update_session(_: Event) -> None:
+                import time
+
+                now = time.monotonic()
+                if now - _last_journal_active_update[0] < 30.0:
+                    return
+                _last_journal_active_update[0] = now
+                journal.update_current_session(active_seconds=int(state_machine.session_elapsed_sec))
+
+            bus.subscribe(EventType.DETECTION_COMPLETE, _on_detection_update_session)
 
             # Break lifecycle — track triggered vs taken for the compliance chart
             _active_break_id: list[int] = [-1]
@@ -392,7 +434,10 @@ class NeuraBreakApp:
             self._detection_service.stop()
         if self._journal:
             try:
-                self._journal.end_session()
+                active_seconds = None
+                if self._state_machine is not None:
+                    active_seconds = int(self._state_machine.session_elapsed_sec)
+                self._journal.end_session(active_seconds=active_seconds)
             except Exception:
                 pass
         if self._notification_manager:

@@ -60,12 +60,15 @@ class HealthJournalService:
     def __init__(self, db: Database) -> None:
         self._db = db
         self._current_session_id: int | None = None
+        self._last_active_seconds: int = 0
 
 
     #  Session lifecycle
 
     def start_session(self) -> None:
         """Creates a new session row and caches its ID."""
+        if self._current_session_id is not None:
+            return
         with self._db.session() as sess:
             session_row = Session(
                 start_time=datetime.now(),
@@ -76,8 +79,19 @@ class HealthJournalService:
             sess.add(session_row)
             sess.flush()  # populate the auto-increment id before commit
             self._current_session_id = session_row.id
+            self._last_active_seconds = 0
 
-    def end_session(self) -> None:
+    def update_current_session(self, active_seconds: int) -> None:
+        """Persist active seconds for the current in-progress session."""
+        if self._current_session_id is None:
+            return
+        self._last_active_seconds = max(0, int(active_seconds))
+        with self._db.session() as sess:
+            session_row = sess.get(Session, self._current_session_id)
+            if session_row is not None:
+                session_row.total_active_secs = self._last_active_seconds
+
+    def end_session(self, active_seconds: int | None = None) -> None:
         """Stamps the end time and recalculates totals for the current session."""
         if self._current_session_id is None:
             return
@@ -89,9 +103,9 @@ class HealthJournalService:
             now = datetime.now()
             session_row.end_time = now
 
-            # Recalculate active time from the accumulated detections
-            elapsed = (now - session_row.start_time).total_seconds()
-            session_row.total_active_secs = int(elapsed)
+            if active_seconds is not None:
+                self._last_active_seconds = max(0, int(active_seconds))
+            session_row.total_active_secs = self._last_active_seconds
 
             # Recalculate average posture score
             score = self._calc_posture_score(sess, self._current_session_id)
@@ -107,6 +121,7 @@ class HealthJournalService:
             session_row.breaks_taken = breaks_taken
 
         self._current_session_id = None
+        self._last_active_seconds = 0
 
     #  Write events
 
@@ -183,7 +198,7 @@ class HealthJournalService:
           wall-clock delta — prevents stale rows from inflating the total.
         """
         if row.end_time is None and row.id == self._current_session_id:
-            return int((datetime.now() - row.start_time).total_seconds())
+            return max(self._last_active_seconds, row.total_active_secs)
         return row.total_active_secs
 
     #  Read / aggregation — used by the dashboard

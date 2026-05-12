@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from neurabreak.ai.postprocessor import CLASS_NAMES, PRESENCE_CLASSES
+
 if TYPE_CHECKING:
     import numpy as np
 
@@ -28,8 +30,7 @@ log = structlog.get_logger()
 
 # COCO class ID for "person" — used for presence detection
 _PRESENCE_CONF = 0.40
-# Custom 4-class model: 0=face_present, 1=posture_good, 2=posture_bad all indicate presence
-_PRESENCE_CLASSES: frozenset[int] = frozenset({0, 1, 2})
+_PRESENCE_CLASSES: frozenset[int] = frozenset(PRESENCE_CLASSES)
 _YOLO_FLOOR = 0.25
 
 def _resolve_model_path(filename: str) -> str:
@@ -48,6 +49,21 @@ def _resolve_model_path(filename: str) -> str:
                 if candidate.exists():
                     return str(candidate)
     return filename
+
+
+def _resolve_default_model_path(model_variant: str) -> str:
+    """Prefer a bundled ONNX model, then fall back to the variant .pt model."""
+    onnx_name = "neurabreak.onnx"
+    if getattr(sys, "frozen", False):
+        resolved = _resolve_model_path(onnx_name)
+        if resolved != onnx_name:
+            return resolved
+
+    local_onnx = Path("models") / onnx_name
+    if local_onnx.exists():
+        return str(local_onnx)
+
+    return _resolve_model_path(_VARIANT_MAP.get(model_variant, "yolo26n.pt"))
 
 
 # Map model_variant → default model filename (used when model_path is empty)
@@ -180,8 +196,7 @@ class InferenceEngine:
     def load(self) -> None:
         """Load the model. Call this from the inference thread, not the UI thread."""
         self._device = select_best_device(self._device_pref)
-        _default = _VARIANT_MAP.get(self.model_variant, "yolo26n.pt")
-        path = self.model_path or _resolve_model_path(_default)
+        path = self.model_path or _resolve_default_model_path(self.model_variant)
         is_onnx = str(path).lower().endswith(".onnx")
 
         # ONNX Runtime path
@@ -291,35 +306,159 @@ class InferenceEngine:
             raw = self._ort_session.run(None, {self._ort_input_name: tensor})
             latency_ms = (time.perf_counter() - t0) * 1000
 
-            # shape [1, num_boxes, 6] or [1, 6, num_boxes]
-            preds = raw[0]
-            if preds.ndim == 3 and preds.shape[1] < preds.shape[2]:
-                preds = preds.transpose(0, 2, 1)
-
-            raw_boxes: list[dict] = []
-            if preds.ndim >= 2 and preds.shape[0] > 0:
-                for det in preds[0]:
-                    if len(det) < 6:
-                        continue
-                    x1, y1, x2, y2, conf, cls_id = (
-                        float(det[0]), float(det[1]), float(det[2]),
-                        float(det[3]), float(det[4]), int(det[5]),
-                    )
-                    if conf < _YOLO_FLOOR:
-                        continue
-                    raw_boxes.append({
-                        "cls": cls_id,
-                        "cls_name": f"class_{cls_id}",
-                        "confidence": conf,
-                        "conf": conf,
-                        "x1": int(x1), "y1": int(y1),
-                        "x2": int(x2), "y2": int(y2),
-                    })
+            raw_boxes = self._parse_onnx_output(raw[0], frame.shape[:2])
 
             return self._parse_raw_boxes(raw_boxes, latency_ms)
         except Exception as e:
             log.error("onnx_inference_error", error=str(e))
             return DetectionResult(presence=False, posture_class=None, confidence=0.0)
+
+    def _parse_onnx_output(self, preds: "np.ndarray", frame_shape: tuple[int, int]) -> list[dict]:
+        """Parse YOLO ONNX output with or without export-time NMS.
+
+        Exported Ultralytics models without NMS usually return
+        ``[1, 4 + num_classes, anchors]``. With ``nms=True`` they return
+        ``[1, max_det, 6]`` as ``xyxy, confidence, class``. The runtime accepts
+        both so older exported models do not silently become all-neutral.
+        """
+        if preds.ndim == 3:
+            preds = preds[0]
+        if preds.ndim != 2:
+            return []
+
+        # Raw YOLO tensors are commonly [channels, anchors]; NMS tensors are
+        # already [detections, 6].
+        if preds.shape[0] in (len(CLASS_NAMES) + 4, len(CLASS_NAMES) + 5, 6):
+            if preds.shape[0] < preds.shape[1]:
+                preds = preds.transpose(1, 0)
+
+        if preds.shape[1] == 6:
+            boxes = self._parse_onnx_nms_rows(preds, frame_shape)
+        else:
+            boxes = self._decode_onnx_yolo_rows(preds, frame_shape)
+
+        return self._nms_boxes(boxes, iou_threshold=0.45)
+
+    def _parse_onnx_nms_rows(self, rows: "np.ndarray", frame_shape: tuple[int, int]) -> list[dict]:
+        """Parse rows shaped as x1, y1, x2, y2, confidence, class_id."""
+        boxes: list[dict] = []
+        frame_h, frame_w = frame_shape
+        scale_x = frame_w / float(self.imgsz)
+        scale_y = frame_h / float(self.imgsz)
+
+        for det in rows:
+            x1, y1, x2, y2 = (float(det[0]), float(det[1]), float(det[2]), float(det[3]))
+            conf = float(det[4])
+            cls_id = int(det[5])
+            if conf < _YOLO_FLOOR:
+                continue
+            boxes.append(
+                self._box_dict(
+                    cls_id=cls_id,
+                    conf=conf,
+                    x1=x1 * scale_x,
+                    y1=y1 * scale_y,
+                    x2=x2 * scale_x,
+                    y2=y2 * scale_y,
+                )
+            )
+        return boxes
+
+    def _decode_onnx_yolo_rows(self, rows: "np.ndarray", frame_shape: tuple[int, int]) -> list[dict]:
+        """Decode raw YOLO rows shaped as cx, cy, w, h, [obj], class_scores."""
+        import numpy as np
+
+        boxes: list[dict] = []
+        frame_h, frame_w = frame_shape
+        scale_x = frame_w / float(self.imgsz)
+        scale_y = frame_h / float(self.imgsz)
+        num_classes = len(CLASS_NAMES)
+
+        for det in rows:
+            if len(det) < 4 + num_classes:
+                continue
+
+            if len(det) >= 5 + num_classes:
+                objectness = float(det[4])
+                scores = det[5:5 + num_classes]
+            else:
+                objectness = 1.0
+                scores = det[4:4 + num_classes]
+
+            cls_id = int(np.argmax(scores))
+            conf = objectness * float(scores[cls_id])
+            if conf < _YOLO_FLOOR:
+                continue
+
+            cx, cy, width, height = (
+                float(det[0]),
+                float(det[1]),
+                float(det[2]),
+                float(det[3]),
+            )
+            x1 = (cx - width / 2.0) * scale_x
+            y1 = (cy - height / 2.0) * scale_y
+            x2 = (cx + width / 2.0) * scale_x
+            y2 = (cy + height / 2.0) * scale_y
+            boxes.append(self._box_dict(cls_id=cls_id, conf=conf, x1=x1, y1=y1, x2=x2, y2=y2))
+
+        return boxes
+
+    def _box_dict(
+        self,
+        *,
+        cls_id: int,
+        conf: float,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+    ) -> dict:
+        cls_name = CLASS_NAMES.get(cls_id, f"class_{cls_id}")
+        return {
+            "cls": cls_id,
+            "cls_name": cls_name,
+            "confidence": conf,
+            "conf": conf,
+            "x1": max(0, int(x1)),
+            "y1": max(0, int(y1)),
+            "x2": max(0, int(x2)),
+            "y2": max(0, int(y2)),
+        }
+
+    def _nms_boxes(self, boxes: list[dict], iou_threshold: float) -> list[dict]:
+        """Apply class-aware non-maximum suppression to decoded boxes."""
+        kept: list[dict] = []
+        by_class: dict[int, list[dict]] = {}
+        for box in boxes:
+            by_class.setdefault(int(box["cls"]), []).append(box)
+
+        for class_boxes in by_class.values():
+            pending = sorted(class_boxes, key=lambda item: float(item["conf"]), reverse=True)
+            while pending:
+                best = pending.pop(0)
+                kept.append(best)
+                pending = [
+                    box for box in pending
+                    if self._box_iou(best, box) < iou_threshold
+                ]
+
+        return kept
+
+    @staticmethod
+    def _box_iou(a: dict, b: dict) -> float:
+        x_left = max(a["x1"], b["x1"])
+        y_top = max(a["y1"], b["y1"])
+        x_right = min(a["x2"], b["x2"])
+        y_bottom = min(a["y2"], b["y2"])
+        if x_right <= x_left or y_bottom <= y_top:
+            return 0.0
+
+        intersection = float((x_right - x_left) * (y_bottom - y_top))
+        area_a = float(max(0, a["x2"] - a["x1"]) * max(0, a["y2"] - a["y1"]))
+        area_b = float(max(0, b["x2"] - b["x1"]) * max(0, b["y2"] - b["y1"]))
+        union = area_a + area_b - intersection
+        return intersection / union if union > 0 else 0.0
 
     def _parse_ultralytics_results(self, results: list, latency_ms: float) -> DetectionResult:
         presence = False

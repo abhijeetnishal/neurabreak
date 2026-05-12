@@ -61,6 +61,8 @@ class BreakScreen(QDialog):
         self._countdown_sec = 20
         self._exercise_index = 0
         self._mode = "break"  # 'break' | 'eye' | 'walk'
+        self._mandatory = False
+        self._break_started = False
 
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
@@ -82,16 +84,27 @@ class BreakScreen(QDialog):
         self._state_machine = state_machine
         self._notif_manager = notif_manager
         self._mode = "break"
-        self._countdown_sec = 20
-        self._countdown_label.setText("20")
+        self._mandatory = bool(getattr(self.config.escalation, "mandatory_break", False))
+        self._break_started = False
+        self._countdown_sec = (
+            max(1, int(getattr(self.config.breaks, "duration_min", 5))) * 60
+            if self._mandatory
+            else 20
+        )
+        self._countdown_label.setText(self._format_countdown(self._countdown_sec))
         self._exercise_index = 0
         self._exercise_label.setText(_EXERCISES[0])
         self._title_label.setText("🧘 Time for a Break")
+        if self._mandatory:
+            self._title_label.setText("Mandatory Break")
         self._title_label.setStyleSheet("color: #e2e8f0; background: transparent;")
         self._countdown_label.setStyleSheet("color: #60a5fa;")
         self._take_btn.setText("✓  I'm taking my break")
         self._take_btn.show()
-        self._snooze_btn.show()
+        self._take_btn.setEnabled(True)
+        if self._mandatory:
+            self._take_btn.setText("Start break")
+        self._snooze_btn.setVisible(not self._mandatory)
         self.setMinimumSize(540, 340)
         self._timer.start()
         self.show()
@@ -111,6 +124,8 @@ class BreakScreen(QDialog):
         self._state_machine = None
         self._notif_manager = None
         self._mode = "eye"
+        self._mandatory = False
+        self._break_started = False
         self._countdown_sec = duration_sec
         self._countdown_label.setText(str(duration_sec))
         self._exercise_label.setText(
@@ -249,13 +264,12 @@ class BreakScreen(QDialog):
             self._exercise_index = (self._exercise_index + 1) % len(_EXERCISES)
             self._exercise_label.setText(_EXERCISES[self._exercise_index])
 
+        self._countdown_label.setText(self._format_countdown(max(0, self._countdown_sec)))
         if self._countdown_sec <= 0:
             self._timer.stop()
             self._countdown_label.setText("🌟")
 
     def _on_take_break(self) -> None:
-        self._timer.stop()
-
         if self._state_machine is not None:
             try:
                 self._state_machine.start_break()  # type: ignore
@@ -263,9 +277,22 @@ class BreakScreen(QDialog):
                 pass
         if self._on_break_taken_cb:
             self._on_break_taken_cb()
+        if self._mandatory:
+            self._break_started = True
+            self._countdown_sec = max(1, int(getattr(self.config.breaks, "duration_min", 5))) * 60
+            self._countdown_label.setText(self._format_countdown(self._countdown_sec))
+            self._timer.start()
+            self._take_btn.setEnabled(False)
+            self._take_btn.setText("Break in progress")
+            self._exercise_label.setText(_EXERCISES[1])
+            return
+
+        self._timer.stop()
         self.hide()
 
     def _on_snooze(self, minutes: int) -> None:
+        if self._mandatory:
+            return
         self._timer.stop()
         
         if self._notif_manager is not None:
@@ -276,3 +303,16 @@ class BreakScreen(QDialog):
         if self._on_snoozed_cb:
             self._on_snoozed_cb(minutes)
         self.hide()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        if self._mandatory and self.isVisible():
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    @staticmethod
+    def _format_countdown(seconds: int) -> str:
+        if seconds >= 60:
+            minutes, remaining = divmod(seconds, 60)
+            return f"{minutes:02d}:{remaining:02d}"
+        return str(seconds)

@@ -63,3 +63,35 @@ class TestInferenceEngineInterface:
         engine.load()
         engine.unload()
         assert engine.is_loaded is False
+
+    @requires_numpy
+    def test_onnx_nms_output_maps_class_names(self):
+        import numpy as np
+
+        engine = InferenceEngine(model_path="fake_model.onnx", confidence_threshold=0.4)
+        boxes = engine._parse_onnx_output(
+            np.array([[[10, 20, 100, 120, 0.9, 2]]], dtype=np.float32),
+            frame_shape=(320, 320),
+        )
+        result = engine._parse_raw_boxes(boxes, latency_ms=1.0)
+
+        assert boxes[0]["cls_name"] == "posture_bad"
+        assert result.presence is True
+        assert result.posture_class == "posture_bad"
+
+    @requires_numpy
+    def test_onnx_raw_yolo_output_decodes_class_scores(self):
+        import numpy as np
+
+        engine = InferenceEngine(model_path="fake_model.onnx", confidence_threshold=0.4)
+        # Shape is [1, 4 + num_classes, anchors].
+        preds = np.array(
+            [[[160], [160], [40], [60], [0.1], [0.2], [0.95], [0.0]]],
+            dtype=np.float32,
+        )
+
+        boxes = engine._parse_onnx_output(preds, frame_shape=(320, 320))
+        result = engine._parse_raw_boxes(boxes, latency_ms=1.0)
+
+        assert boxes[0]["cls_name"] == "posture_bad"
+        assert result.posture_class == "posture_bad"

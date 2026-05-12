@@ -65,7 +65,7 @@ class NotificationManager:
 
         bus.subscribe(EventType.BREAK_DUE, self._on_break_due)
         bus.subscribe(EventType.POSTURE_ALERT, self._on_posture_alert)
-        bus.subscribe(EventType.BREAK_STARTED, lambda _: self.dismiss())
+        bus.subscribe(EventType.BREAK_STARTED, self._on_break_started)
         bus.subscribe(EventType.BREAK_ENDED, lambda _: self.dismiss())
         bus.subscribe(EventType.POSTURE_RESTORED, self._on_posture_restored)
         bus.subscribe(EventType.SESSION_PAUSED, lambda _: self.dismiss())
@@ -122,6 +122,9 @@ class NotificationManager:
 
     def snooze(self, minutes: int) -> None:
         """Defer the reminder by `minutes` minutes then re-fire BREAK_DUE."""
+        if self._is_mandatory_break_active():
+            log.info("mandatory_break_snooze_ignored")
+            return
         self._escalation.reset()
         with self._level_lock:
             self._current_level = 0
@@ -156,6 +159,14 @@ class NotificationManager:
     def _on_posture_restored(self, event: Event) -> None:
         if self._current_trigger == "posture":
             self.dismiss()
+
+    def _on_break_started(self, event: Event) -> None:
+        if self._is_mandatory_break_active():
+            return
+        self.dismiss()
+
+    def _is_mandatory_break_active(self) -> bool:
+        return self.config.escalation.mandatory_break and self._current_trigger == "break"
 
     def _on_eye_break_due(self, event: Event) -> None:
         """20-20-20 rule: gentle eye-rest reminder every eye_break_interval_min minutes.

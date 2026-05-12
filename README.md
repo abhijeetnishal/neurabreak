@@ -86,7 +86,8 @@ https://github.com/user-attachments/assets/2c2e2add-cef6-46a9-b1ac-df92bbd12251
 ### 🔒 Privacy by Design
 - Camera is accessed **only while monitoring** — disabled at any other time
 - No frames are stored on disk — ever
-- No telemetry, no cloud calls, no account required
+- Health journal data is stored in local SQLite; database encryption is not enabled yet.
+- No telemetry, no account required. The optional update checker contacts GitHub Releases at startup.
 
 ### 🔄 Auto-update Checker
 - Background GitHub Releases check on startup — uses stdlib only, never blocks the UI
@@ -114,7 +115,7 @@ cd neurabreak
 # Minimal — tray icon + break reminders only (no AI)
 uv sync
 
-# With AI posture detection
+# With AI posture detection and smart camera pause
 uv sync --extra ai
 
 # With audio alerts
@@ -126,6 +127,8 @@ uv sync --extra full
 # Everything including dev tools
 uv sync --extra ai --extra audio --extra data --extra system --extra dev
 ```
+
+Minimal mode uses an internal timer, so full break and eye-rest reminders still fire without OpenCV, a model, or webcam access. Install `--extra ai` when you want camera-driven smart pause and posture classification.
 
 ### Run
 
@@ -161,6 +164,9 @@ Use this flow before opening a packaging-related PR:
 ```bash
 # Install runtime + packaging dependencies used by the installer build
 uv sync --extra full --extra packaging
+
+# Required: export the runtime ONNX model used by the packaged app
+uv run python training/export.py --format onnx --output models
 
 # Build PyInstaller bundle → dist\NeuraBreak\
 uv run pyinstaller packaging/windows/build.spec --noconfirm --clean

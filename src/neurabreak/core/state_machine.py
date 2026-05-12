@@ -52,7 +52,10 @@ class PostureStateMachine:
 
         # Session timing
         self.session_started_at: float | None = None
+        self._active_segment_started_at: float | None = None
+        self._accumulated_active_sec: float = 0.0
         self.session_elapsed_sec: float = 0.0
+        self._session_paused: bool = False
 
         # Frame counters (reset on every direction change)
         self.consecutive_present: int = 0
@@ -156,8 +159,23 @@ class PostureStateMachine:
         # At 5 fps that's 10 consecutive frames; at 3 fps it's 6 frames.
         needed = self.fps * 2
         if self.consecutive_present >= needed:
+            if self._session_paused and self.session_started_at is not None:
+                self._active_segment_started_at = now
+                self._session_paused = False
+                self._transition(AppState.MONITORING)
+                bus.publish(
+                    Event(
+                        EventType.SESSION_RESUMED,
+                        {"session_elapsed_sec": self.session_elapsed_sec},
+                    )
+                )
+                return
+
             self.session_started_at = now
+            self._active_segment_started_at = now
+            self._accumulated_active_sec = 0.0
             self.session_elapsed_sec = 0.0
+            self._session_paused = False
             self._transition(AppState.MONITORING)
             bus.publish(Event(EventType.SESSION_STARTED))
 
@@ -165,16 +183,21 @@ class PostureStateMachine:
         # Smart pause: if we haven't seen anyone for long enough, pause the session
         pause_threshold = self.fps * self.smart_pause_sec
         if not present and self.consecutive_absent >= pause_threshold:
+            self._pause_active_session(now)
             self._transition(AppState.IDLE)
-            bus.publish(Event(EventType.SESSION_PAUSED))
+            bus.publish(
+                Event(
+                    EventType.SESSION_PAUSED,
+                    {"session_elapsed_sec": self.session_elapsed_sec},
+                )
+            )
             return
 
         if not present:
             return  # brief absence, don't change state yet
 
         # Tick the session timer
-        if self.session_started_at is not None:
-            self.session_elapsed_sec = now - self.session_started_at
+        self._update_session_elapsed(now)
 
         # Is it time for a break?
         if self.session_elapsed_sec >= self.break_interval_min * 60:
@@ -212,17 +235,21 @@ class PostureStateMachine:
             self.bad_posture_frames = 0
 
     def _from_posture_alert(self, now: float, present: bool, posture_class: str | None) -> None:
-        # Person left — smart pause takes precedence
         pause_threshold = self.fps * self.smart_pause_sec
         if not present and self.consecutive_absent >= pause_threshold:
+            self._pause_active_session(now)
             self._transition(AppState.IDLE)
-            bus.publish(Event(EventType.SESSION_PAUSED))
+            bus.publish(
+                Event(
+                    EventType.SESSION_PAUSED,
+                    {"session_elapsed_sec": self.session_elapsed_sec},
+                )
+            )
             return
         # Brief absence (below pause threshold)
         if not present:
             return
-        if self.session_started_at is not None:
-            self.session_elapsed_sec = now - self.session_started_at
+        self._update_session_elapsed(now)
 
         _neutral_classes = {"posture_good", "face_present", None}
         if posture_class in _neutral_classes:
@@ -288,7 +315,10 @@ class PostureStateMachine:
         if self.state != AppState.BREAK_ACTIVE:
             return  # safeguard against double-calls
         self.session_started_at = time.monotonic()
+        self._active_segment_started_at = self.session_started_at
+        self._accumulated_active_sec = 0.0
         self.session_elapsed_sec = 0.0
+        self._session_paused = False
         self.bad_posture_frames = 0
         # Reset eye-break counter so it fires again in the new session
         self._eye_break_count = 0
@@ -303,6 +333,9 @@ class PostureStateMachine:
         self._transition(AppState.IDLE)
         self.session_elapsed_sec = 0.0
         self.session_started_at = None
+        self._active_segment_started_at = None
+        self._accumulated_active_sec = 0.0
+        self._session_paused = False
         self.bad_posture_frames = 0
         self.consecutive_present = 0
         self.consecutive_absent = 0
@@ -318,13 +351,46 @@ class PostureStateMachine:
         self._break_due_absence_score = 0
         # Push to IDLE so the current session timer stops and any alert is dismissed.
         if self.state not in (AppState.IDLE,):
+            self._pause_active_session(time.monotonic())
             self._transition(AppState.IDLE)
-            bus.publish(Event(EventType.SESSION_PAUSED))
+            bus.publish(
+                Event(
+                    EventType.SESSION_PAUSED,
+                    {"session_elapsed_sec": self.session_elapsed_sec},
+                )
+            )
 
     def _on_manual_resume(self) -> None:
         """Called when the tray's Resume Monitoring button is clicked."""
         self._manually_paused = False
         # State machine re-enters MONITORING naturally on next presence detection.
+
+    def _update_session_elapsed(self, now: float | None = None) -> None:
+        """Refresh active work seconds without counting paused wall-clock time."""
+        if self.session_started_at is None:
+            self.session_elapsed_sec = 0.0
+            return
+
+        if self._active_segment_started_at is None:
+            self.session_elapsed_sec = self._accumulated_active_sec
+            return
+
+        current = time.monotonic() if now is None else now
+        if (
+            self._accumulated_active_sec == 0.0
+            and self.session_started_at < self._active_segment_started_at
+        ):
+            self._active_segment_started_at = self.session_started_at
+        self.session_elapsed_sec = (
+            self._accumulated_active_sec + current - self._active_segment_started_at
+        )
+
+    def _pause_active_session(self, now: float | None = None) -> None:
+        """Freeze active elapsed time while keeping the session resumable."""
+        self._update_session_elapsed(now)
+        self._accumulated_active_sec = self.session_elapsed_sec
+        self._active_segment_started_at = None
+        self._session_paused = self.session_started_at is not None
 
 
     def _transition(self, new_state: AppState) -> None:
