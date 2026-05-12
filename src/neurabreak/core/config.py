@@ -10,9 +10,10 @@ with clear error messages rather than failures at runtime.
 
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -82,7 +83,7 @@ class BreakConfig(BaseModel):
     smart_pause_sec: int = Field(default=30, ge=5)
 
     eye_break_interval_min: int = Field(
-        default=20, ge=5, le=60,
+        default=20, ge=0, le=60,
         description="Fire the 20-20-20 eye-rest reminder every N minutes (0 = disabled).",
     )
     eye_break_duration_sec: int = Field(
@@ -102,7 +103,7 @@ class EscalationConfig(BaseModel):
     level_2_delay_min: int = Field(default=2, ge=1)
     level_3_delay_min: int = Field(default=5, ge=1)
     mandatory_break: bool = False
-    snooze_options: list[int] = [5, 10, 20]
+    snooze_options: list[int] = Field(default_factory=lambda: [5, 10, 20])
     respect_focus_mode: bool = True
 
 
@@ -240,62 +241,60 @@ class ConfigManager:
             log.error("config_reload_failed", error=str(e))
 
 
-def _write_default_config(path: Path, cfg: AppConfig) -> None:
-    content = f"""\
-    # NeuraBreak Configuration
-    # Edit this file to customize the app. Changes apply without a restart.
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    raise TypeError(f"Unsupported TOML value type: {type(value).__name__}")
 
-    [detection]
-    fps                  = {cfg.detection.fps}      # Webcam capture rate (1-30). 5 fps is plenty for posture.
-    confidence_threshold = {cfg.detection.confidence_threshold}   # Only alert when model is at least this confident.
-    consecutive_frames   = {cfg.detection.consecutive_frames}      # How many frames in a row before triggering.
-    model_variant        = "{cfg.detection.model_variant}"  # "nano" (fast, less accurate) / "small" / "medium"
 
-    [breaks]
-    interval_min      = {cfg.breaks.interval_min}    # Trigger a full break reminder every N minutes.
-    duration_min      = {cfg.breaks.duration_min}     # Minimum break duration in minutes.
-    posture_alert_sec = {cfg.breaks.posture_alert_sec}    # Alert after bad posture lasts this long (seconds).
-    smart_pause_sec   = {cfg.breaks.smart_pause_sec}    # Pause the session timer if away for N seconds.
+def _write_section(lines: list[str], title: str, data: dict[str, Any]) -> None:
+    lines.append(f"[{title}]")
+    for key, value in data.items():
+        lines.append(f"{key} = {_toml_value(value)}")
+    lines.append("")
 
-    # 20-20-20 rule
-    # Every eye_break_interval_min minutes, look 20 feet away for eye_break_duration_sec seconds.
-    eye_break_interval_min  = {cfg.breaks.eye_break_interval_min}   # Minutes between eye-rest reminders.
-    eye_break_duration_sec  = {cfg.breaks.eye_break_duration_sec}   # Duration of the eye rest (seconds).
 
-    [escalation]
-    level_2_delay_min  = {cfg.escalation.level_2_delay_min}     # Escalate to level 2 if level 1 is ignored for N min.
-    level_3_delay_min  = {cfg.escalation.level_3_delay_min}     # Escalate to break screen after N more minutes.
-    mandatory_break    = {str(cfg.escalation.mandatory_break).lower()}   # Block input until break is taken (strong!).
-    respect_focus_mode = {str(cfg.escalation.respect_focus_mode).lower()}  # Suppresses reminders while OS focus assist is on.
+def config_to_toml(cfg: AppConfig, *, include_comments: bool = False) -> str:
+    """Serialize the complete config model as TOML.
 
-    [audio]
-    enabled = {str(cfg.audio.enabled).lower()}
-    volume  = {cfg.audio.volume}   # 0-100. The app always respects the OS mute state.
-
-    [audio.sounds]
-    # Use "builtin:<name>" for the included sound pack, or give a file path:
-    #   level_1 = "~/Music/my_chime.mp3"
-    level_1   = "{cfg.audio.sounds.level_1}"       # gentle Level 1 nudge
-    level_2   = "{cfg.audio.sounds.level_2}"     # persistent Level 2 reminder
-    level_3   = "{cfg.audio.sounds.level_3}"    # ambient audio during break
-    break_end = "{cfg.audio.sounds.break_end}"           # break-over signal
-
-    [privacy]
-    store_detections    = {str(cfg.privacy.store_detections).lower()}   # Save detection events to the local DB.
-    encrypt_database    = {str(cfg.privacy.encrypt_database).lower()}   # Reserved; local SQLite is not encrypted.
-    anonymous_telemetry = {str(cfg.privacy.anonymous_telemetry).lower()}  # Send anonymous usage stats. Off by default.
-
-    [ui]
-    start_minimized         = {str(cfg.ui.start_minimized).lower()}   # Start in the background (no window on launch).
-    tray_icon_color_coding  = {str(cfg.ui.tray_icon_color_coding).lower()}  # Green/yellow/red posture indicator in tray.
-    theme                   = "{cfg.ui.theme}"    # "system" / "dark" / "light"
-
-    [dark_hours]
-    enabled          = {str(cfg.dark_hours.enabled).lower()}
-    start_hour       = {cfg.dark_hours.start_hour}   # 24-hour format. 22 = 10 pm.
-    end_hour         = {cfg.dark_hours.end_hour}    # 24-hour format. 7 = 7 am.
-    reduce_volume    = {str(cfg.dark_hours.reduce_volume).lower()}   # Lower audio volume late at night.
-    stricter_posture = {str(cfg.dark_hours.stricter_posture).lower()}  # Extra posture alerts during dark hours.
+    The app intentionally avoids an extra TOML writer dependency, but all
+    string values still go through JSON escaping, which is valid for TOML
+    basic strings and keeps Windows paths/quotes round-trippable.
     """
-    path.write_text(content, encoding="utf-8")
+    data = cfg.model_dump(mode="python")
+    lines = ["# NeuraBreak Configuration"]
+    if include_comments:
+        lines.append("# Edit this file to customize the app. Changes apply without a restart.")
+        lines.append("# eye_break_interval_min = 0 disables eye-rest reminders.")
+    else:
+        lines.append("# Saved by NeuraBreak.")
+    lines.append("")
+    _write_section(lines, "detection", data["detection"])
+    _write_section(lines, "breaks", data["breaks"])
+    _write_section(lines, "escalation", data["escalation"])
+
+    audio = data["audio"].copy()
+    sounds = audio.pop("sounds")
+    _write_section(lines, "audio", audio)
+    _write_section(lines, "audio.sounds", sounds)
+
+    _write_section(lines, "privacy", data["privacy"])
+    _write_section(lines, "ui", data["ui"])
+    _write_section(lines, "dark_hours", data["dark_hours"])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_config(path: Path, cfg: AppConfig, *, include_comments: bool = False) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(config_to_toml(cfg, include_comments=include_comments), encoding="utf-8")
+
+
+def _write_default_config(path: Path, cfg: AppConfig) -> None:
+    write_config(path, cfg, include_comments=True)
     log.info("default_config_written", path=str(path))

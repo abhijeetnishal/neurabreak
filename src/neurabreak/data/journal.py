@@ -170,6 +170,15 @@ class HealthJournalService:
                 brk.started_at = datetime.now()
                 brk.acknowledged = 1
 
+    def record_break_snoozed(self, break_id: int) -> None:
+        """Count a snooze on the active break reminder without creating a new row."""
+        if break_id < 0:
+            return
+        with self._db.session() as sess:
+            brk = sess.get(Break, break_id)
+            if brk:
+                brk.snoozed_count = (brk.snoozed_count or 0) + 1
+
     def mark_break_ended(self, break_id: int) -> None:
         """Stamp a break as completed and record how long it lasted."""
         if break_id < 0:
@@ -184,7 +193,7 @@ class HealthJournalService:
 
     #  Internal helpers
 
-    def _live_active_secs(self, row: "Session") -> int:  # type: ignore[name-defined]
+    def _live_active_secs(self, row: Session) -> int:
         """Return the active seconds for a session row.
 
         Only the CURRENT in-progress session (id matches ``_current_session_id``)

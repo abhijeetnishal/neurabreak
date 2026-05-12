@@ -13,12 +13,9 @@ import pytest
 
 pytest.importorskip("sqlalchemy", reason="sqlalchemy not installed; run `uv sync --extra data`")
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from neurabreak.data.database import Database
-from neurabreak.data.journal import HealthJournalService
-from neurabreak.data.models import Base, Break, Detection, Session
+from neurabreak.data.database import Database  # noqa: E402,I001
+from neurabreak.data.journal import HealthJournalService  # noqa: E402,I001
+from neurabreak.data.models import Break, Detection, Session  # noqa: E402,I001
 
 
 #  Fixture: in-memory database
@@ -167,6 +164,21 @@ class TestBreakRecording:
         journal.mark_break_taken(-1)
         journal.mark_break_ended(-1)
 
+    def test_snoozes_stay_on_existing_break_row(self, db, journal):
+        journal.start_session()
+        bid = journal.record_break("timer")
+
+        journal.record_break_snoozed(bid)
+        journal.record_break_snoozed(bid)
+        journal.mark_break_taken(bid)
+
+        with db.session() as sess:
+            brk = sess.get(Break, bid)
+            assert brk.snoozed_count == 2
+
+        stats = journal.get_break_compliance(days=7)
+        assert stats == {"triggered": 1, "taken": 1, "skipped": 0}
+
 
 #  Aggregation queries
 
@@ -226,7 +238,7 @@ class TestAggregation:
     def test_get_break_compliance_partial(self, journal):
         journal.start_session()
         b1 = journal.record_break("timer")
-        b2 = journal.record_break("timer")
+        journal.record_break("timer")
         journal.mark_break_taken(b1)
 
         stats = journal.get_break_compliance(days=7)

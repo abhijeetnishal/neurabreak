@@ -264,13 +264,14 @@ frame_skip_threshold = 8.0     # pixel-diff threshold to skip unchanged frames (
 [breaks]
 interval_min = 45              # session length before break reminder (minutes)
 duration_min = 5               # enforced break length (minutes)
-smart_pause = true             # pause timer when you leave the desk
-eye_break_interval_min = 20    # 20-20-20 rule interval
+smart_pause_sec = 30           # pause timer after this many seconds away
+eye_break_interval_min = 20    # 20-20-20 rule interval; 0 disables
 eye_break_duration_sec = 20    # 20-20-20 rule gaze duration
 
 [ui]
-theme = "auto"                 # system | light | dark | auto
+theme = "system"               # system | light | dark
 start_minimized = false
+show_preview_on_start = false
 ```
 
 

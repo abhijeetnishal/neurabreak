@@ -6,7 +6,7 @@ Tests focus on the public API contract without actually playing audio
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 class TestAudioManagerInit:
@@ -34,7 +34,7 @@ class TestAudioManagerInit:
         assert sounds_dir.exists()
 
     def test_builtin_sounds_generated_on_init(self, tmp_path):
-        from neurabreak.notifications.audio import AudioManager, _BUILTIN_SPECS
+        from neurabreak.notifications.audio import _BUILTIN_SPECS, AudioManager
 
         AudioManager(assets_dir=tmp_path)
         sounds_dir = tmp_path / "sounds"
@@ -79,7 +79,7 @@ class TestAudioManagerPlayback:
         am._system_beep.assert_called_once()
 
     def test_play_builtin_resolves_correct_path(self, tmp_path):
-        from neurabreak.notifications.audio import AudioManager, _BUILTIN_NAMES
+        from neurabreak.notifications.audio import AudioManager
 
         am = AudioManager(assets_dir=tmp_path)
         played: list[tuple] = []
@@ -91,6 +91,20 @@ class TestAudioManagerPlayback:
         time.sleep(0.05)
 
         # The path should point to the chime_soft.wav in our sounds dir
+        assert any("chime_soft.wav" in str(p) for _, p in played)
+
+    def test_play_builtin_accepts_bundled_sound_name(self, tmp_path):
+        from neurabreak.notifications.audio import AudioManager
+
+        am = AudioManager(assets_dir=tmp_path)
+        played: list[tuple] = []
+        am._play_file = lambda key, path, vol=None: played.append((key, path))  # type: ignore
+
+        am.play_builtin("chime_soft")
+
+        import time
+        time.sleep(0.05)
+
         assert any("chime_soft.wav" in str(p) for _, p in played)
 
     def test_set_volume_clamps(self, tmp_path):

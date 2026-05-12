@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from neurabreak.core.config import (
     AppConfig,
@@ -27,19 +28,19 @@ class TestAppConfigDefaults:
         assert cfg.privacy.anonymous_telemetry is False
 
     def test_detection_config_clamps_fps(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DetectionConfig(fps=0)
 
     def test_detection_config_clamps_confidence(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DetectionConfig(confidence_threshold=1.5)
 
     def test_audio_volume_clamped(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             AudioConfig(volume=101)
 
     def test_break_interval_minimum(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             BreakConfig(interval_min=4)
 
     def test_audio_sounds_defaults(self):
@@ -99,6 +100,14 @@ class TestConfigManager:
 
         assert manager.config.privacy.encrypt_database is False
 
+    def test_eye_break_interval_zero_disables_reminders(self, tmp_path):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text("[breaks]\neye_break_interval_min = 0\n", encoding="utf-8")
+
+        manager = ConfigManager.load(path=config_path)
+
+        assert manager.config.breaks.eye_break_interval_min == 0
+
 
 class TestDefaultConfigFileContent:
     def test_default_config_file_is_valid_toml(self, tmp_path):
@@ -129,3 +138,39 @@ class TestDefaultConfigFileContent:
         cfg.sounds.level_1 = str(custom_sound)
         path = cfg.resolve_sound_path("level_1", Path("/assets"))
         assert path == custom_sound.resolve()
+
+    def test_settings_writer_preserves_full_config_and_escapes_strings(self, tmp_path, qapp):
+        import tomllib
+
+        from neurabreak.ui.settings import SettingsWindow
+
+        config_path = tmp_path / "config.toml"
+        cfg = AppConfig()
+        cfg.detection.fps = 11
+        cfg.detection.device = "cpu"
+        cfg.detection.model_path = r"C:\Models\posture custom.onnx"
+        cfg.detection.frame_skip_threshold = 0.0
+        cfg.audio.sounds.level_1 = r'C:\Users\Me\Sounds\ding "soft".wav'
+        cfg.privacy.store_detections = False
+        cfg.privacy.anonymous_telemetry = True
+        cfg.ui.show_preview_on_start = True
+        cfg.dark_hours.stricter_posture = False
+
+        manager = ConfigManager(cfg, config_path)
+        window = SettingsWindow(manager)
+        window._write_config_to_disk(cfg)
+
+        with open(config_path, "rb") as f:
+            parsed = tomllib.load(f)
+
+        window.close()
+
+        assert parsed["detection"]["fps"] == 11
+        assert parsed["detection"]["device"] == "cpu"
+        assert parsed["detection"]["model_path"] == r"C:\Models\posture custom.onnx"
+        assert parsed["detection"]["frame_skip_threshold"] == 0.0
+        assert parsed["audio"]["sounds"]["level_1"] == r'C:\Users\Me\Sounds\ding "soft".wav'
+        assert parsed["privacy"]["store_detections"] is False
+        assert parsed["privacy"]["anonymous_telemetry"] is True
+        assert parsed["ui"]["show_preview_on_start"] is True
+        assert parsed["dark_hours"]["stricter_posture"] is False

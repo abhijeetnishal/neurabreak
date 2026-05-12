@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
 
 import structlog
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -55,12 +55,28 @@ class Database:
             connect_args={"check_same_thread": False},
         )
         Base.metadata.create_all(self._engine)
+        self._migrate_schema()
         self._SessionLocal = sessionmaker(
             bind=self._engine,
             autocommit=False,
             autoflush=False,
         )
         log.info("database_connected", path=str(self.db_path))
+
+    def _migrate_schema(self) -> None:
+        """Apply tiny additive migrations for existing SQLite databases."""
+        if self._engine is None:
+            return
+        inspector = inspect(self._engine)
+        if "breaks" not in inspector.get_table_names():
+            return
+        break_columns = {col["name"] for col in inspector.get_columns("breaks")}
+        if "snoozed_count" not in break_columns:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE breaks ADD COLUMN snoozed_count INTEGER NOT NULL DEFAULT 0")
+                )
+            log.info("database_migrated", table="breaks", column="snoozed_count")
 
     @contextmanager
     def session(self) -> Generator[Session, None, None]:

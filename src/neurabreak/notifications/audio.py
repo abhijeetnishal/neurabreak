@@ -28,6 +28,10 @@ _BUILTIN_NAMES: dict[str, str] = {
     "level_3": "nature_forest.wav",
     "break_end": "break_end.wav",
 }
+_BUILTIN_ALIASES: dict[str, str] = {
+    **_BUILTIN_NAMES,
+    **{filename.removesuffix(".wav"): filename for filename in _BUILTIN_NAMES.values()},
+}
 
 # Simple sine-wave specs: (frequency_hz, duration_sec) for generated placeholders
 _BUILTIN_SPECS: dict[str, tuple[int, float]] = {
@@ -69,8 +73,8 @@ class AudioManager:
         thread.start()
 
     def play_builtin(self, sound_key: str) -> None:
-        """Play one of the bundled sounds by its logical key."""
-        filename = _BUILTIN_NAMES.get(sound_key)
+        """Play one of the bundled sounds by logical key or bundled name."""
+        filename = _BUILTIN_ALIASES.get(sound_key)
         if filename is None:
             log.warning("unknown_builtin_sound_key", key=sound_key)
             return

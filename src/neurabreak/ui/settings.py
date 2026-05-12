@@ -40,8 +40,9 @@ if TYPE_CHECKING:
     from neurabreak.core.config import AppConfig, ConfigManager
     from neurabreak.notifications.audio import AudioManager
 
-from neurabreak.ui.branding import apply_window_icon, logo_pixmap
+from neurabreak.core.config import write_config
 from neurabreak.core.events import Event, EventType, bus
+from neurabreak.ui.branding import apply_window_icon, logo_pixmap
 
 log = structlog.get_logger()
 
@@ -262,11 +263,11 @@ class SettingsWindow(QDialog):
         form.addRow("", _hint("Pause the session timer when no one is at the desk for this long."))
 
         self._eye_interval_spin = QSpinBox()
-        self._eye_interval_spin.setRange(5, 60)
+        self._eye_interval_spin.setRange(0, 60)
         self._eye_interval_spin.setSuffix("  min")
         self._eye_interval_spin.setValue(self._config.breaks.eye_break_interval_min)
         form.addRow("Eye break every:", self._eye_interval_spin)
-        form.addRow("", _hint("20-20-20 rule: look 20 ft away for 20 sec every N minutes."))
+        form.addRow("", _hint("20-20-20 rule: look 20 ft away for 20 sec every N minutes. Use 0 to disable."))
 
         self._eye_duration_spin = QSpinBox()
         self._eye_duration_spin.setRange(5, 120)
@@ -295,6 +296,10 @@ class SettingsWindow(QDialog):
         self._tray_colors_cb = QCheckBox()
         self._tray_colors_cb.setChecked(self._config.ui.tray_icon_color_coding)
         ui_form.addRow("Tray icon color coding:", self._tray_colors_cb)
+
+        self._show_preview_cb = QCheckBox()
+        self._show_preview_cb.setChecked(self._config.ui.show_preview_on_start)
+        ui_form.addRow("Show preview on start:", self._show_preview_cb)
 
         self._theme_combo = QComboBox()
         self._theme_combo.addItems(["system", "dark", "light"])
@@ -365,6 +370,10 @@ class SettingsWindow(QDialog):
         self._dark_volume_cb.setChecked(self._config.dark_hours.reduce_volume)
         dark_form.addRow("Reduce volume:", self._dark_volume_cb)
 
+        self._dark_strict_posture_cb = QCheckBox()
+        self._dark_strict_posture_cb.setChecked(self._config.dark_hours.stricter_posture)
+        dark_form.addRow("Faster posture escalation:", self._dark_strict_posture_cb)
+
         layout.addWidget(dark_group)
         layout.addStretch()
         return w
@@ -421,7 +430,9 @@ class SettingsWindow(QDialog):
             pick_btn = QPushButton("…")
             pick_btn.setFixedWidth(28)
             pick_btn.setToolTip("Browse for a sound file")
-            pick_btn.clicked.connect(lambda checked, k=key, l=val_lbl: self._pick_sound(k, l))
+            pick_btn.clicked.connect(
+                lambda checked, k=key, label_widget=val_lbl: self._pick_sound(k, label_widget)
+            )
 
             test_btn = QPushButton("▶")
             test_btn.setFixedWidth(28)
@@ -456,8 +467,7 @@ class SettingsWindow(QDialog):
             return
         sound_val = getattr(self._config.audio.sounds, key, "")
         if sound_val.startswith("builtin:"):
-            name = sound_val.removeprefix("builtin:")
-            self._audio.play_builtin(name)
+            self._audio.play_configured(key, self._config)
         elif sound_val:
             self._audio.play(key, Path(sound_val))
 
@@ -553,6 +563,7 @@ class SettingsWindow(QDialog):
         cfg.breaks.eye_break_duration_sec = self._eye_duration_spin.value()
         cfg.ui.start_minimized = self._start_minimized_cb.isChecked()
         cfg.ui.tray_icon_color_coding = self._tray_colors_cb.isChecked()
+        cfg.ui.show_preview_on_start = self._show_preview_cb.isChecked()
         cfg.ui.theme = self._theme_combo.currentText()
 
         # Windows autostart — write registry immediately on save
@@ -569,6 +580,7 @@ class SettingsWindow(QDialog):
         cfg.dark_hours.start_hour = self._dark_start_spin.value()
         cfg.dark_hours.end_hour = self._dark_end_spin.value()
         cfg.dark_hours.reduce_volume = self._dark_volume_cb.isChecked()
+        cfg.dark_hours.stricter_posture = self._dark_strict_posture_cb.isChecked()
 
         # Audio
         cfg.audio.enabled = self._audio_enabled_cb.isChecked()
@@ -585,50 +597,6 @@ class SettingsWindow(QDialog):
     def _write_config_to_disk(self, cfg: AppConfig) -> None:
         path = self.config_manager._config_path
         path.parent.mkdir(parents=True, exist_ok=True)
+        write_config(path, cfg)
 
-        # Build TOML string from model — simple manual serialisation so we don't need an extra library
-        lines = [
-            "# NeuraBreak Configuration",
-            "# Saved by the Settings window.\n",
-            "[breaks]",
-            f'interval_min           = {cfg.breaks.interval_min}',
-            f'duration_min           = {cfg.breaks.duration_min}',
-            f'posture_alert_sec      = {cfg.breaks.posture_alert_sec}',
-            f'smart_pause_sec        = {cfg.breaks.smart_pause_sec}',
-            f'eye_break_interval_min = {cfg.breaks.eye_break_interval_min}',
-            f'eye_break_duration_sec = {cfg.breaks.eye_break_duration_sec}',
-            "",
-            "[escalation]",
-            f'level_2_delay_min  = {cfg.escalation.level_2_delay_min}',
-            f'level_3_delay_min  = {cfg.escalation.level_3_delay_min}',
-            f'mandatory_break    = {str(cfg.escalation.mandatory_break).lower()}',
-            f'respect_focus_mode = {str(cfg.escalation.respect_focus_mode).lower()}',
-            "",
-            "[audio]",
-            f'enabled = {str(cfg.audio.enabled).lower()}',
-            f'volume  = {cfg.audio.volume}',
-            "",
-            "[audio.sounds]",
-            f'level_1   = "{cfg.audio.sounds.level_1}"',
-            f'level_2   = "{cfg.audio.sounds.level_2}"',
-            f'level_3   = "{cfg.audio.sounds.level_3}"',
-            f'break_end = "{cfg.audio.sounds.break_end}"',
-            "",
-            "[privacy]",
-            f'store_detections    = {str(cfg.privacy.store_detections).lower()}',
-            "",
-            "[ui]",
-            f'start_minimized         = {str(cfg.ui.start_minimized).lower()}',
-            f'tray_icon_color_coding  = {str(cfg.ui.tray_icon_color_coding).lower()}',
-            f'theme                   = "{cfg.ui.theme}"',
-            "",
-            "[dark_hours]",
-            f'enabled         = {str(cfg.dark_hours.enabled).lower()}',
-            f'start_hour      = {cfg.dark_hours.start_hour}',
-            f'end_hour        = {cfg.dark_hours.end_hour}',
-            f'reduce_volume   = {str(cfg.dark_hours.reduce_volume).lower()}',
-            f'stricter_posture = {str(cfg.dark_hours.stricter_posture).lower()}',
-        ]
-
-        path.write_text("\n".join(lines), encoding="utf-8")
 

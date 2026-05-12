@@ -20,7 +20,7 @@ from pathlib import Path
 import structlog
 from PySide6.QtCore import QEvent, QObject
 
-from neurabreak.core.config import ConfigManager, DB_FILE
+from neurabreak.core.config import DB_FILE, ConfigManager
 from neurabreak.ui.branding import get_app_icon
 
 log = structlog.get_logger()
@@ -197,6 +197,8 @@ class NeuraBreakApp:
             on_quit_requested=self._request_app_quit,
         )
         self._tray.show()
+        if config.ui.show_preview_on_start:
+            QTimer.singleShot(0, self._tray._toggle_preview)
 
         # Break screen
         from neurabreak.ui.break_screen import BreakScreen
@@ -354,32 +356,40 @@ class NeuraBreakApp:
 
             def _on_break_due_journal(event: Event) -> None:
                 reason = event.data.get("reason", "break_interval")
+                if reason == "snooze_expired" and _active_break_id[0] >= 0:
+                    return
+                if _active_break_id[0] >= 0:
+                    return
                 _active_break_id[0] = journal.record_break(reason)
 
             def _on_break_started_journal(_: Event) -> None:
+                if _active_break_id[0] < 0:
+                    _active_break_id[0] = journal.record_break("manual")
                 journal.mark_break_taken(_active_break_id[0])
 
             def _on_break_ended_journal(_: Event) -> None:
                 journal.mark_break_ended(_active_break_id[0])
                 _active_break_id[0] = -1
 
+            def _on_break_snoozed_journal(_: Event) -> None:
+                journal.record_break_snoozed(_active_break_id[0])
+
             bus.subscribe(EventType.BREAK_DUE, _on_break_due_journal)
+            bus.subscribe(EventType.BREAK_SNOOZED, _on_break_snoozed_journal)
             bus.subscribe(EventType.BREAK_STARTED, _on_break_started_journal)
             bus.subscribe(EventType.BREAK_ENDED, _on_break_ended_journal)
 
 
         # Hide the break screen when the user steps away (smart-pause) or when
         # the break ends — avoids the overlay lingering after state transitions.
-        from neurabreak.core.events import EventType, bus as _bus
-
         _break_screen_ref = self._break_screen
 
         def _hide_break_screen_on_pause(_: object) -> None:                                                     
             if _break_screen_ref is not None and _break_screen_ref.isVisible():
                 QTimer.singleShot(0, _break_screen_ref.hide)
 
-        _bus.subscribe(EventType.SESSION_PAUSED, _hide_break_screen_on_pause)
-        _bus.subscribe(EventType.BREAK_ENDED, _hide_break_screen_on_pause)
+        bus.subscribe(EventType.SESSION_PAUSED, _hide_break_screen_on_pause)
+        bus.subscribe(EventType.BREAK_ENDED, _hide_break_screen_on_pause)
 
         # Start services after Qt event loop is pumping
         QTimer.singleShot(500, self._start_services)

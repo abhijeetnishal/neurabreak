@@ -9,7 +9,7 @@ the main thread safely.
 from __future__ import annotations
 
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 import structlog
 
@@ -125,6 +125,12 @@ class NotificationManager:
         if self._is_mandatory_break_active():
             log.info("mandatory_break_snooze_ignored")
             return
+        bus.publish(
+            Event(
+                EventType.BREAK_SNOOZED,
+                {"minutes": minutes, "trigger": self._current_trigger},
+            )
+        )
         self._escalation.reset()
         with self._level_lock:
             self._current_level = 0
@@ -155,6 +161,8 @@ class NotificationManager:
         self._current_trigger = "posture"
         self._current_message = f"Posture check: {label}" if label else "Check your posture!"
         self._trigger_level(1)
+        if self.config.dark_hours.stricter_posture and self._is_dark_hours():
+            self._trigger_level(2)
 
     def _on_posture_restored(self, event: Event) -> None:
         if self._current_trigger == "posture":

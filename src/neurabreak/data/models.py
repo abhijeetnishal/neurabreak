@@ -26,8 +26,8 @@ class Session(Base):
     breaks_taken: Mapped[int] = mapped_column(Integer, default=0)
     avg_posture_score: Mapped[float] = mapped_column(Float, default=0.0)
 
-    detections: Mapped[list["Detection"]] = relationship(back_populates="session")
-    breaks: Mapped[list["Break"]] = relationship(back_populates="session")
+    detections: Mapped[list[Detection]] = relationship(back_populates="session")
+    breaks: Mapped[list[Break]] = relationship(back_populates="session")
 
     def __repr__(self) -> str:
         return f"<Session id={self.id} started={self.start_time.isoformat()}>"
@@ -45,7 +45,7 @@ class Detection(Base):
     is_face_present: Mapped[int] = mapped_column(Integer, nullable=False)  # 0 or 1
     phone_detected: Mapped[int] = mapped_column(Integer, default=0)
 
-    session: Mapped["Session | None"] = relationship(back_populates="detections")
+    session: Mapped[Session | None] = relationship(back_populates="detections")
 
 
 class Break(Base):
@@ -59,6 +59,7 @@ class Break(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime)
     duration_secs: Mapped[int | None] = mapped_column(Integer)
     acknowledged: Mapped[int] = mapped_column(Integer, default=0)
+    snoozed_count: Mapped[int] = mapped_column(Integer, default=0)
 
-    session: Mapped["Session | None"] = relationship(back_populates="breaks")
+    session: Mapped[Session | None] = relationship(back_populates="breaks")
 
