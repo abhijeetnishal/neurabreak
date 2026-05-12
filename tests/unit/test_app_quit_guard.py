@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from PySide6.QtCore import QEvent
 
 from neurabreak.core.config import ConfigManager
+from neurabreak.core.runtime_control import RuntimeSession
 from neurabreak.ui.app import NeuraBreakApp, _QuitEventGuard
 
 
@@ -42,6 +43,30 @@ def test_request_app_quit_marks_next_quit_as_explicit(tmp_path, qapp):
     assert app._explicit_quit_requested is True
     assert guard.eventFilter(qapp, QEvent(QEvent.Type.Quit)) is False
     assert guard.eventFilter(qapp, QEvent(QEvent.Type.Quit)) is True
+
+
+def test_check_quit_request_consumes_external_request(tmp_path, monkeypatch):
+    cfg = ConfigManager.load(path=tmp_path / "config.toml")
+    app = NeuraBreakApp(cfg)
+
+    app._qt_app = MagicMock()
+    app._quit_guard = MagicMock()
+    app._runtime_session = RuntimeSession(pid=123, token="test-token")
+
+    consumed = []
+
+    def _consume_quit_request(session):
+        consumed.append(session)
+        return True
+
+    monkeypatch.setattr("neurabreak.ui.app.consume_quit_request", _consume_quit_request)
+
+    app._check_quit_request()
+
+    assert consumed == [app._runtime_session]
+    app._qt_app.quit.assert_called_once()
+    app._quit_guard.allow_next_quit.assert_called_once()
+    assert app._explicit_quit_requested is True
 
 
 def test_run_main_loop_restarts_on_unexpected_exit_then_quits_explicitly(tmp_path):

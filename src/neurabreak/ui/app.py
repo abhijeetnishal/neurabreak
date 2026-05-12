@@ -21,6 +21,12 @@ import structlog
 from PySide6.QtCore import QEvent, QObject
 
 from neurabreak.core.config import DB_FILE, ConfigManager
+from neurabreak.core.runtime_control import (
+    RuntimeSession,
+    clear_runtime_session,
+    consume_quit_request,
+    start_runtime_session,
+)
 from neurabreak.ui.branding import get_app_icon
 
 log = structlog.get_logger()
@@ -89,6 +95,8 @@ class NeuraBreakApp:
         self._db = None
         self._state_machine = None
         self._quit_guard = None
+        self._quit_request_timer = None
+        self._runtime_session: RuntimeSession | None = None
         self._explicit_quit_requested = False
 
     def run(self) -> int:
@@ -391,6 +399,12 @@ class NeuraBreakApp:
         bus.subscribe(EventType.SESSION_PAUSED, _hide_break_screen_on_pause)
         bus.subscribe(EventType.BREAK_ENDED, _hide_break_screen_on_pause)
 
+        self._runtime_session = start_runtime_session()
+        self._quit_request_timer = QTimer(self._qt_app)
+        self._quit_request_timer.setInterval(250)
+        self._quit_request_timer.timeout.connect(self._check_quit_request)
+        self._quit_request_timer.start()
+
         # Start services after Qt event loop is pumping
         QTimer.singleShot(500, self._start_services)
 
@@ -440,6 +454,9 @@ class NeuraBreakApp:
 
     def _on_quit(self) -> None:
         log.info("app_shutting_down")
+        if self._quit_request_timer is not None:
+            self._quit_request_timer.stop()
+            self._quit_request_timer = None
         if self._detection_service:
             self._detection_service.stop()
         if self._journal:
@@ -454,6 +471,9 @@ class NeuraBreakApp:
             self._notification_manager.stop()
         if self._db:
             self._db.disconnect()
+        if self._runtime_session is not None:
+            clear_runtime_session(self._runtime_session)
+            self._runtime_session = None
 
     def _on_about_to_quit(self) -> None:
         log.info(
@@ -468,4 +488,11 @@ class NeuraBreakApp:
         if self._quit_guard is not None:
             self._quit_guard.allow_next_quit()
         self._qt_app.quit()
+
+    def _check_quit_request(self) -> None:
+        if self._runtime_session is None:
+            return
+        if consume_quit_request(self._runtime_session):
+            log.info("external_quit_requested")
+            self._request_app_quit()
 

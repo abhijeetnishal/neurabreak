@@ -8,8 +8,10 @@ def main() -> int:
     args = sys.argv[1:]
 
     # --quit: ask any running instance to exit (used by the uninstaller).
-    # We just exit immediately — the uninstaller kills the process next anyway.
     if "--quit" in args:
+        from neurabreak.core.runtime_control import request_running_instance_quit
+
+        request_running_instance_quit()
         return 0
 
     # --minimized: passed by the Windows autostart registry entry.
