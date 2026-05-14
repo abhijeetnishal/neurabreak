@@ -283,13 +283,55 @@ class TestDataExport:
 
     def test_export_json_creates_file(self, db, journal, tmp_path):
         journal.start_session()
+        journal.record_detection(
+            "posture_good",
+            0.91234,
+            True,
+            phone_detected=True,
+            inference_ms=24.5,
+        )
+        break_id = journal.record_break("timer")
+        journal.record_break_snoozed(break_id)
+        journal.mark_break_taken(break_id)
+        journal.mark_break_ended(break_id)
         journal.end_session()
 
         out = str(tmp_path / "export.json")
         journal.export_json(out)
 
         data = json.loads(Path(out).read_text())
-        assert isinstance(data, list)
-        assert len(data) >= 1
-        assert "session_id" in data[0]
+        assert set(data.keys()) == {"sessions", "detections", "breaks"}
+
+        assert len(data["sessions"]) == 1
+        assert "session_id" in data["sessions"][0]
+
+        assert len(data["detections"]) == 1
+        detection = data["detections"][0]
+        assert detection["posture_class"] == "posture_good"
+        assert detection["confidence"] == 0.9123
+        assert detection["is_face_present"] is True
+        assert detection["phone_detected"] is True
+        assert detection["inference_ms"] == 24.5
+
+        assert len(data["breaks"]) == 1
+        break_row = data["breaks"][0]
+        assert break_row["trigger_type"] == "timer"
+        assert break_row["acknowledged"] is True
+        assert break_row["snoozed_count"] == 1
+        assert break_row["started_at"] is not None
+        assert break_row["ended_at"] is not None
+
+    def test_export_json_includes_records_without_session(self, db, journal, tmp_path):
+        journal.record_detection("posture_bad", 0.75, True)
+        journal.record_break("manual")
+
+        out = str(tmp_path / "export_orphans.json")
+        journal.export_json(out)
+
+        data = json.loads(Path(out).read_text())
+        assert data["sessions"] == []
+        assert len(data["detections"]) == 1
+        assert data["detections"][0]["session_id"] is None
+        assert len(data["breaks"]) == 1
+        assert data["breaks"][0]["session_id"] is None
 

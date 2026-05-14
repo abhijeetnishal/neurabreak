@@ -367,21 +367,60 @@ class HealthJournalService:
 
         with self._db.session() as sess:
             sessions = sess.scalars(select(Session).order_by(Session.start_time)).all()
-            payload = []
-            for s in sessions:
-                payload.append({
-                    "session_id": s.id,
-                    "start_time": s.start_time.isoformat(),
-                    "end_time": s.end_time.isoformat() if s.end_time else None,
-                    "total_active_secs": s.total_active_secs,
-                    "breaks_taken": s.breaks_taken,
-                    "avg_posture_score": round(s.avg_posture_score, 4),
-                })
+            detections = sess.scalars(select(Detection).order_by(Detection.timestamp)).all()
+            breaks = sess.scalars(select(Break).order_by(Break.triggered_at)).all()
+
+            payload = {
+                "sessions": [
+                    {
+                        "session_id": s.id,
+                        "start_time": s.start_time.isoformat(),
+                        "end_time": s.end_time.isoformat() if s.end_time else None,
+                        "total_active_secs": self._live_active_secs(s),
+                        "breaks_taken": s.breaks_taken,
+                        "avg_posture_score": round(s.avg_posture_score, 4),
+                    }
+                    for s in sessions
+                ],
+                "detections": [
+                    {
+                        "id": d.id,
+                        "session_id": d.session_id,
+                        "timestamp": d.timestamp.isoformat(),
+                        "posture_class": d.posture_class,
+                        "confidence": round(d.confidence, 4),
+                        "inference_ms": d.inference_ms,
+                        "is_face_present": bool(d.is_face_present),
+                        "phone_detected": bool(d.phone_detected),
+                    }
+                    for d in detections
+                ],
+                "breaks": [
+                    {
+                        "id": b.id,
+                        "session_id": b.session_id,
+                        "trigger_type": b.trigger_type,
+                        "triggered_at": b.triggered_at.isoformat(),
+                        "started_at": b.started_at.isoformat() if b.started_at else None,
+                        "ended_at": b.ended_at.isoformat() if b.ended_at else None,
+                        "duration_secs": b.duration_secs,
+                        "acknowledged": bool(b.acknowledged),
+                        "snoozed_count": b.snoozed_count,
+                    }
+                    for b in breaks
+                ],
+            }
 
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
 
-        log.info("export_json_done", path=str(path), sessions=len(payload))
+        log.info(
+            "export_json_done",
+            path=str(path),
+            sessions=len(payload["sessions"]),
+            detections=len(payload["detections"]),
+            breaks=len(payload["breaks"]),
+        )
 
     #  Internal helpers
 
