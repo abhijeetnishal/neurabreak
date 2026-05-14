@@ -6,7 +6,20 @@ Tests focus on the public API contract without actually playing audio
 
 from __future__ import annotations
 
+import wave
 from unittest.mock import MagicMock
+
+import pytest
+
+from neurabreak.notifications.audio import AudioFileValidationError, validate_custom_audio_file
+
+
+def _write_valid_wav(path):
+    with wave.open(str(path), "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(44100)
+        wf.writeframes(b"\x00\x00" * 100)
 
 
 class TestAudioManagerInit:
@@ -88,6 +101,7 @@ class TestAudioManagerPlayback:
         am.play_builtin("level_1")
         # Give the thread a moment (it's fire-and-forget)
         import time
+
         time.sleep(0.05)
 
         # The path should point to the chime_soft.wav in our sounds dir
@@ -103,6 +117,7 @@ class TestAudioManagerPlayback:
         am.play_builtin("chime_soft")
 
         import time
+
         time.sleep(0.05)
 
         assert any("chime_soft.wav" in str(p) for _, p in played)
@@ -128,3 +143,31 @@ class TestAudioManagerPlayback:
 
         am.play_configured("level_1", cfg)
         assert "level_1" in played_keys
+
+
+class TestCustomAudioValidation:
+    def test_validate_custom_audio_expands_user_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        wav_path = tmp_path / "custom.wav"
+        _write_valid_wav(wav_path)
+
+        assert validate_custom_audio_file("~/custom.wav") == wav_path.resolve()
+
+    def test_validate_custom_audio_rejects_missing_file(self, tmp_path):
+        with pytest.raises(AudioFileValidationError, match="does not exist"):
+            validate_custom_audio_file(tmp_path / "missing.wav")
+
+    def test_validate_custom_audio_rejects_unsupported_extension(self, tmp_path):
+        text_path = tmp_path / "custom.txt"
+        text_path.write_text("not audio", encoding="utf-8")
+
+        with pytest.raises(AudioFileValidationError, match="Unsupported audio format"):
+            validate_custom_audio_file(text_path)
+
+    def test_validate_custom_audio_rejects_invalid_wav(self, tmp_path):
+        wav_path = tmp_path / "custom.wav"
+        wav_path.write_bytes(b"not a wav")
+
+        with pytest.raises(AudioFileValidationError, match="valid.*audio file|valid WAV"):
+            validate_custom_audio_file(wav_path)

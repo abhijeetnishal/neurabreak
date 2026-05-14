@@ -11,6 +11,7 @@ with clear error messages rather than failures at runtime.
 from __future__ import annotations
 
 import json
+import os
 import tomllib
 from pathlib import Path
 from typing import Any, Literal
@@ -83,11 +84,15 @@ class BreakConfig(BaseModel):
     smart_pause_sec: int = Field(default=30, ge=5)
 
     eye_break_interval_min: int = Field(
-        default=20, ge=0, le=60,
+        default=20,
+        ge=0,
+        le=60,
         description="Fire the 20-20-20 eye-rest reminder every N minutes (0 = disabled).",
     )
     eye_break_duration_sec: int = Field(
-        default=20, ge=5, le=120,
+        default=20,
+        ge=5,
+        le=120,
         description="How long the eye-break countdown lasts (seconds).",
     )
 
@@ -133,7 +138,12 @@ class AudioConfig(BaseModel):
         if val.startswith("builtin:"):
             name = val.removeprefix("builtin:")
             return assets_dir / "sounds" / f"{name}.wav"
-        return Path(val).expanduser().resolve()
+        return resolve_custom_sound_path(val)
+
+
+def resolve_custom_sound_path(value: str | Path) -> Path:
+    """Expand a user-provided audio path into an absolute path."""
+    return Path(os.path.expandvars(str(value))).expanduser().resolve(strict=False)
 
 
 class PrivacyConfig(BaseModel):

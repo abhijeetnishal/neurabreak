@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import wave
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,14 @@ from neurabreak.core.config import (
     DetectionConfig,
     _write_default_config,
 )
+
+
+def _write_valid_wav(path: Path) -> None:
+    with wave.open(str(path), "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(44100)
+        wf.writeframes(b"\x00\x00" * 100)
 
 
 class TestAppConfigDefaults:
@@ -174,3 +183,46 @@ class TestDefaultConfigFileContent:
         assert parsed["privacy"]["anonymous_telemetry"] is True
         assert parsed["ui"]["show_preview_on_start"] is True
         assert parsed["dark_hours"]["stricter_posture"] is False
+
+    def test_settings_save_expands_custom_audio_path(self, tmp_path, monkeypatch, qapp):
+        import tomllib
+
+        from neurabreak.ui.settings import SettingsWindow
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        wav_path = tmp_path / "custom.wav"
+        _write_valid_wav(wav_path)
+
+        config_path = tmp_path / "config.toml"
+        cfg = AppConfig()
+        cfg.audio.sounds.level_1 = "~/custom.wav"
+
+        manager = ConfigManager(cfg, config_path)
+        window = SettingsWindow(manager)
+        window._on_save()
+
+        with open(config_path, "rb") as f:
+            parsed = tomllib.load(f)
+
+        window.close()
+
+        assert parsed["audio"]["sounds"]["level_1"] == str(wav_path.resolve())
+
+    def test_settings_save_rejects_invalid_custom_audio_path(self, tmp_path, monkeypatch, qapp):
+        from neurabreak.ui.settings import QMessageBox, SettingsWindow
+
+        warnings = []
+        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(args))
+
+        config_path = tmp_path / "config.toml"
+        cfg = AppConfig()
+        cfg.audio.sounds.level_1 = str(tmp_path / "missing.wav")
+
+        manager = ConfigManager(cfg, config_path)
+        window = SettingsWindow(manager)
+        window._on_save()
+        window.close()
+
+        assert warnings
+        assert not config_path.exists()

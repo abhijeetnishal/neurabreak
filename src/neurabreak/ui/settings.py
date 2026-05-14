@@ -42,9 +42,17 @@ if TYPE_CHECKING:
 
 from neurabreak.core.config import write_config
 from neurabreak.core.events import Event, EventType, bus
+from neurabreak.notifications.audio import AudioFileValidationError, validate_custom_audio_file
 from neurabreak.ui.branding import apply_window_icon, logo_pixmap
 
 log = structlog.get_logger()
+
+_SOUND_LABELS = {
+    "level_1": "Level 1",
+    "level_2": "Level 2",
+    "level_3": "Level 3",
+    "break_end": "Break end",
+}
 
 _STYLE = """
 QDialog, QWidget {
@@ -210,10 +218,10 @@ class SettingsWindow(QDialog):
         self._tabs = QTabWidget()
         root.addWidget(self._tabs)
 
-        self._tabs.addTab(self._scrollable(self._tab_general()),       "General")
+        self._tabs.addTab(self._scrollable(self._tab_general()), "General")
         self._tabs.addTab(self._scrollable(self._tab_notifications()), "Notifications")
-        self._tabs.addTab(self._scrollable(self._tab_audio()),         "Audio")
-        self._tabs.addTab(self._scrollable(self._tab_about()),         "About")
+        self._tabs.addTab(self._scrollable(self._tab_audio()), "Audio")
+        self._tabs.addTab(self._scrollable(self._tab_about()), "About")
 
         # Save / Cancel buttons
         buttons = QDialogButtonBox(
@@ -267,7 +275,10 @@ class SettingsWindow(QDialog):
         self._eye_interval_spin.setSuffix("  min")
         self._eye_interval_spin.setValue(self._config.breaks.eye_break_interval_min)
         form.addRow("Eye break every:", self._eye_interval_spin)
-        form.addRow("", _hint("20-20-20 rule: look 20 ft away for 20 sec every N minutes. Use 0 to disable."))
+        form.addRow(
+            "",
+            _hint("20-20-20 rule: look 20 ft away for 20 sec every N minutes. Use 0 to disable."),
+        )
 
         self._eye_duration_spin = QSpinBox()
         self._eye_duration_spin.setRange(5, 120)
@@ -286,12 +297,15 @@ class SettingsWindow(QDialog):
         ui_form.addRow("Start minimized to tray:", self._start_minimized_cb)
 
         from neurabreak.core import startup as _startup
+
         self._startup_cb: QCheckBox | None = None
         if _startup.is_windows():
             self._startup_cb = QCheckBox()
             self._startup_cb.setChecked(_startup.is_startup_enabled())
             ui_form.addRow("Start with Windows:", self._startup_cb)
-            ui_form.addRow("", _hint("Launch NeuraBreak automatically at login (no admin rights needed)."))
+            ui_form.addRow(
+                "", _hint("Launch NeuraBreak automatically at login (no admin rights needed).")
+            )
 
         self._tray_colors_cb = QCheckBox()
         self._tray_colors_cb.setChecked(self._config.ui.tray_icon_color_coding)
@@ -342,7 +356,9 @@ class SettingsWindow(QDialog):
         self._focus_mode_cb = QCheckBox()
         self._focus_mode_cb.setChecked(self._config.escalation.respect_focus_mode)
         form.addRow("Respect focus mode:", self._focus_mode_cb)
-        form.addRow("", _hint("Holds notifications when OS Focus Assist / Do Not Disturb is active."))
+        form.addRow(
+            "", _hint("Holds notifications when OS Focus Assist / Do Not Disturb is active.")
+        )
 
         layout.addWidget(group)
 
@@ -412,10 +428,10 @@ class SettingsWindow(QDialog):
 
         self._sound_rows: dict[str, QLabel] = {}
         sound_levels = [
-            ("level_1", "Level 1 (gentle nudge):",  self._config.audio.sounds.level_1),
-            ("level_2", "Level 2 (balloon):",        self._config.audio.sounds.level_2),
-            ("level_3", "Level 3 (overlay):",        self._config.audio.sounds.level_3),
-            ("break_end", "Break end chime:",        self._config.audio.sounds.break_end),
+            ("level_1", "Level 1 (gentle nudge):", self._config.audio.sounds.level_1),
+            ("level_2", "Level 2 (balloon):", self._config.audio.sounds.level_2),
+            ("level_3", "Level 3 (overlay):", self._config.audio.sounds.level_3),
+            ("break_end", "Break end chime:", self._config.audio.sounds.break_end),
         ]
         for key, label_text, current_val in sound_levels:
             row = QHBoxLayout()
@@ -457,9 +473,13 @@ class SettingsWindow(QDialog):
             "Audio files (*.wav *.mp3 *.ogg)",
         )
         if path:
-            label.setText(path)
-            label.setToolTip(path)
-            setattr(self._config.audio.sounds, key, path)
+            validated_path = self._validate_custom_sound_selection(key, path)
+            if validated_path is None:
+                return
+            normalized = str(validated_path)
+            label.setText(normalized)
+            label.setToolTip(normalized)
+            setattr(self._config.audio.sounds, key, normalized)
 
     def _test_sound(self, key: str) -> None:
         if not self._audio:
@@ -469,7 +489,40 @@ class SettingsWindow(QDialog):
         if sound_val.startswith("builtin:"):
             self._audio.play_configured(key, self._config)
         elif sound_val:
-            self._audio.play(key, Path(sound_val))
+            validated_path = self._validate_custom_sound_selection(key, sound_val)
+            if validated_path is not None:
+                self._audio.play(key, validated_path)
+
+    def _validate_custom_sound_selection(self, key: str, sound_path: str | Path) -> Path | None:
+        try:
+            return validate_custom_audio_file(sound_path)
+        except AudioFileValidationError as exc:
+            QMessageBox.warning(
+                self,
+                "Invalid audio file",
+                f"{_SOUND_LABELS.get(key, key)} sound cannot be used:\n\n{exc}",
+            )
+            log.warning("custom_audio_invalid", key=key, path=str(sound_path), error=str(exc))
+            return None
+
+    def _validate_custom_sounds_for_save(self) -> list[str]:
+        errors: list[str] = []
+        for key, label_text in _SOUND_LABELS.items():
+            sound_val = getattr(self._config.audio.sounds, key, "")
+            if not sound_val or sound_val.startswith("builtin:"):
+                continue
+            try:
+                normalized_path = validate_custom_audio_file(sound_val)
+            except AudioFileValidationError as exc:
+                errors.append(f"{label_text}: {exc}")
+                continue
+
+            normalized = str(normalized_path)
+            setattr(self._config.audio.sounds, key, normalized)
+            if key in self._sound_rows:
+                self._sound_rows[key].setText(normalized)
+                self._sound_rows[key].setToolTip(normalized)
+        return errors
 
     # Tab: About
 
@@ -569,6 +622,7 @@ class SettingsWindow(QDialog):
         # Windows autostart — write registry immediately on save
         if self._startup_cb is not None:
             from neurabreak.core.startup import set_startup
+
             set_startup(self._startup_cb.isChecked())
 
         # Notifications
@@ -585,6 +639,14 @@ class SettingsWindow(QDialog):
         # Audio
         cfg.audio.enabled = self._audio_enabled_cb.isChecked()
         cfg.audio.volume = self._volume_slider.value()
+        audio_errors = self._validate_custom_sounds_for_save()
+        if audio_errors:
+            QMessageBox.warning(
+                self,
+                "Invalid audio settings",
+                "Fix these custom audio files before saving:\n\n" + "\n".join(audio_errors),
+            )
+            return
 
         try:
             self._write_config_to_disk(cfg)
@@ -598,5 +660,3 @@ class SettingsWindow(QDialog):
         path = self.config_manager._config_path
         path.parent.mkdir(parents=True, exist_ok=True)
         write_config(path, cfg)
-
-

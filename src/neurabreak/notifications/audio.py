@@ -35,11 +35,69 @@ _BUILTIN_ALIASES: dict[str, str] = {
 
 # Simple sine-wave specs: (frequency_hz, duration_sec) for generated placeholders
 _BUILTIN_SPECS: dict[str, tuple[int, float]] = {
-    "chime_soft.wav":    (880, 0.8),
-    "tibetan_bowl.wav":  (528, 1.5),
+    "chime_soft.wav": (880, 0.8),
+    "tibetan_bowl.wav": (528, 1.5),
     "nature_forest.wav": (432, 2.0),
-    "break_end.wav":     (660, 0.6),
+    "break_end.wav": (660, 0.6),
 }
+
+SUPPORTED_CUSTOM_AUDIO_EXTENSIONS = {".wav", ".mp3", ".ogg"}
+
+
+class AudioFileValidationError(ValueError):
+    """Raised when a user-selected custom audio file cannot be used."""
+
+
+def validate_custom_audio_file(sound_path: str | Path) -> Path:
+    """Validate and normalize a custom audio file path.
+
+    This is intentionally synchronous so settings can reject invalid files at
+    selection/save time instead of deferring the failure to playback.
+    """
+    from neurabreak.core.config import resolve_custom_sound_path
+
+    path = resolve_custom_sound_path(sound_path)
+    if not path.exists():
+        raise AudioFileValidationError(f"File does not exist: {path}")
+    if not path.is_file():
+        raise AudioFileValidationError(f"Path is not a file: {path}")
+    if path.suffix.lower() not in SUPPORTED_CUSTOM_AUDIO_EXTENSIONS:
+        supported = ", ".join(sorted(SUPPORTED_CUSTOM_AUDIO_EXTENSIONS))
+        raise AudioFileValidationError(
+            f"Unsupported audio format '{path.suffix}'. Use {supported}."
+        )
+
+    try:
+        with path.open("rb") as file:
+            file.read(1)
+    except OSError as exc:
+        raise AudioFileValidationError(f"File is not readable: {path}") from exc
+
+    try:
+        import soundfile as sf  # type: ignore
+
+        info = sf.info(str(path))
+        if info.frames <= 0 or info.samplerate <= 0:
+            raise AudioFileValidationError(f"File has no playable audio frames: {path}")
+    except ImportError:
+        if path.suffix.lower() != ".wav":
+            raise AudioFileValidationError(
+                "MP3 and OGG validation requires the optional audio dependencies."
+            ) from None
+        _validate_wav_header(path)
+    except Exception as exc:
+        raise AudioFileValidationError(f"File is not a valid audio file: {path}") from exc
+
+    return path
+
+
+def _validate_wav_header(path: Path) -> None:
+    try:
+        with wave.open(str(path), "rb") as wf:
+            if wf.getnchannels() < 1 or wf.getframerate() <= 0 or wf.getnframes() <= 0:
+                raise wave.Error("WAV file has no playable audio frames")
+    except (EOFError, wave.Error) as exc:
+        raise AudioFileValidationError(f"File is not a valid WAV audio file: {path}") from exc
 
 
 class AudioManager:
@@ -54,7 +112,9 @@ class AudioManager:
 
     # Public API
 
-    def play(self, sound_key: str, sound_path: Path | None = None, volume_override: int | None = None) -> None:
+    def play(
+        self, sound_key: str, sound_path: Path | None = None, volume_override: int | None = None
+    ) -> None:
         """Play a sound file asynchronously (fire and forget).
 
         Args:
@@ -80,7 +140,9 @@ class AudioManager:
             return
         self.play(sound_key, self.assets_dir / "sounds" / filename)
 
-    def play_configured(self, sound_key: str, config: object, volume_override: int | None = None) -> None:
+    def play_configured(
+        self, sound_key: str, config: object, volume_override: int | None = None
+    ) -> None:
         """Resolve the path from config and play it."""
         from neurabreak.core.config import AppConfig
 
@@ -96,14 +158,16 @@ class AudioManager:
         """Stop whatever is currently playing."""
         try:
             import sounddevice as sd  # type: ignore
+
             sd.stop()
         except Exception:
             pass
-    
-    
+
     # Internal helpers
 
-    def _play_file(self, sound_key: str, sound_path: Path | None, volume_override: int | None = None) -> None:
+    def _play_file(
+        self, sound_key: str, sound_path: Path | None, volume_override: int | None = None
+    ) -> None:
         with self._lock:
             if sound_path is None or not sound_path.exists():
                 log.warning("audio_file_missing", key=sound_key, path=str(sound_path))
@@ -114,7 +178,7 @@ class AudioManager:
                 import soundfile as sf  # type: ignore
 
                 data, samplerate = sf.read(str(sound_path), dtype="float32")
-                vol = (volume_override if volume_override is not None else self.volume)
+                vol = volume_override if volume_override is not None else self.volume
                 data = data * (max(0, min(100, vol)) / 100.0)
                 sd.play(data, samplerate)
                 sd.wait()
@@ -130,6 +194,7 @@ class AudioManager:
     def _system_beep(self) -> None:
         try:
             import winsound
+
             winsound.MessageBeep()
         except ImportError:
             print("\a", end="", flush=True)
