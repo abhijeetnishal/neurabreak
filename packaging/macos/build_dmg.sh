@@ -14,7 +14,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 # Verify .app exists
 if [ ! -d "${APP_PATH}" ]; then
-    echo "❌ ERROR: .app not found at ${APP_PATH}"
+    echo " ERROR: .app not found at ${APP_PATH}"
     echo "   Run pyinstaller first!"
     exit 1
 fi
@@ -37,7 +37,7 @@ create-dmg \
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  ✅ DMG created: ${DMG_OUT}"
+echo "   DMG created: ${DMG_OUT}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "  To test: open '${DMG_OUT}'"
