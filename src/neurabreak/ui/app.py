@@ -86,6 +86,7 @@ class NeuraBreakApp:
 
     def __init__(self, config_manager: ConfigManager) -> None:
         self.config_manager = config_manager
+        self._config_file_mtime: float | None = None
         self._qt_app = None
         self._tray = None
         self._detection_service = None
@@ -136,6 +137,12 @@ class NeuraBreakApp:
             return 1
 
         config = self.config_manager.config
+        # Track config file mtime to detect external edits
+        try:
+            _stat = self.config_manager._config_path.stat()
+            self._config_file_mtime = float(_stat.st_mtime)
+        except Exception:
+            self._config_file_mtime = None
 
         # Auto-tune FPS: drop to 3 on CPU-only to halve CPU load vs the 5 FPS default.
         try:
@@ -312,6 +319,25 @@ class NeuraBreakApp:
                 self._break_screen.config = updated_cfg
 
         bus.subscribe(EventType.CONFIG_CHANGED, _apply_runtime_config)
+
+        # Update our mtime tracker when the app itself publishes config changes
+        def _on_config_changed_update_mtime(_: Event) -> None:
+            try:
+                _stat = self.config_manager._config_path.stat()
+                self._config_file_mtime = float(_stat.st_mtime)
+            except Exception:
+                pass
+
+        bus.subscribe(EventType.CONFIG_CHANGED, _on_config_changed_update_mtime)
+
+        # Lightweight file watcher: poll the config file mtime every 5s and
+        # reload/publish via the existing CONFIG_CHANGED flow when it changes.
+        from PySide6.QtCore import QTimer
+
+        self._config_watcher_timer = QTimer(self._qt_app)
+        self._config_watcher_timer.setInterval(5000)
+        self._config_watcher_timer.timeout.connect(self._check_config_file)
+        self._config_watcher_timer.start()
 
         # Wire live-preview frames: the inference thread calls this closure
         # which routes the frame to the preview window (if open) on the main thread.
@@ -495,4 +521,33 @@ class NeuraBreakApp:
         if consume_quit_request(self._runtime_session):
             log.info("external_quit_requested")
             self._request_app_quit()
+
+    def _check_config_file(self) -> None:
+        try:
+            path = self.config_manager._config_path
+            if not path.exists():
+                return
+            mtime = float(path.stat().st_mtime)
+            if self._config_file_mtime is None:
+                self._config_file_mtime = mtime
+                return
+            if mtime <= self._config_file_mtime:
+                return
+
+            # Attempt a safe reload; ConfigManager.reload() leaves the
+            # last valid config in place on error.
+            old_cfg = self.config_manager.config
+            self.config_manager.reload()
+            new_cfg = self.config_manager.config
+
+            # Only publish when the reload produced a different valid config
+            if new_cfg.model_dump(mode="python") != old_cfg.model_dump(mode="python"):
+                from neurabreak.core.events import Event, EventType, bus as _bus
+
+                _bus.publish(Event(EventType.CONFIG_CHANGED, {"config": new_cfg}))
+
+            # Update last seen mtime regardless (prevents duplicate publishes)
+            self._config_file_mtime = mtime
+        except Exception:
+            log.exception("config_watcher_error")
 
