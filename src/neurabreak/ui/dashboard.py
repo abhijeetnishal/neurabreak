@@ -75,12 +75,15 @@ def _make_stat_card(label: str, value: str, colour: str = _NEUTRAL_COLOUR) -> QF
     card.setFrameShape(QFrame.Shape.StyledPanel)
     card.setStyleSheet(f"""
         QFrame {{
-            background-color: #2b2b2b;
-            border-radius: 8px;
-            border: 1px solid #3a3a3a;
+            background-color: #252525;
+            border-radius: 12px;
+            border: 1px solid #3f3f3f;
+        }}
+
+        QFrame:hover {{
+            border: 1px solid {colour};
         }}
     """)
-
     layout = QVBoxLayout(card)
     layout.setContentsMargins(16, 12, 16, 12)
     layout.setSpacing(4)
@@ -398,6 +401,9 @@ class DashboardWindow(QMainWindow):
         title_font.setBold(True)
         title.setFont(title_font)
         header.addWidget(title)
+        subtitle = QLabel("Monitor your productivity and posture insights in real time.")
+        subtitle.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+        root.addWidget(subtitle)
         header.addStretch()
 
         self._last_refresh_lbl = QLabel("Refreshing…")
@@ -415,10 +421,10 @@ class DashboardWindow(QMainWindow):
         self._cards_layout = QGridLayout()
         self._cards_layout.setSpacing(10)
 
-        self._card_active = _make_stat_card("Active Today", "—", _NEUTRAL_COLOUR)
-        self._card_score = _make_stat_card("Posture Score", "—", _GOOD_COLOUR)
-        self._card_breaks = _make_stat_card("Breaks Taken", "—", _WARNING_COLOUR)
-        self._card_streak = _make_stat_card("Good Days Streak", "—", _GOOD_COLOUR)
+        self._card_active = _make_stat_card("⏱ Active Today", "—", _NEUTRAL_COLOUR)
+        self._card_score = _make_stat_card("📈 Posture Score", "—", _GOOD_COLOUR)
+        self._card_breaks = _make_stat_card("☕ Breaks Taken", "—", _WARNING_COLOUR)
+        self._card_streak = _make_stat_card("🔥 Good Days Streak", "—", _GOOD_COLOUR)
 
         self._cards_layout.addWidget(self._card_active, 0, 0)
         self._cards_layout.addWidget(self._card_score, 0, 1)
@@ -467,6 +473,51 @@ class DashboardWindow(QMainWindow):
         self._compliance_chart = _ComplianceChart()
         comp_g_layout.addWidget(self._compliance_chart)
         charts_layout.addWidget(compliance_group)
+
+        # Recent activity section
+        activity_group = QGroupBox("Recent Activity")
+        activity_layout = QVBoxLayout(activity_group)
+        self._activity_labels = []
+   
+        activities = [
+                "✔ Focus session completed • 2 mins ago",
+                "☕ Break completed successfully • 10 mins ago",
+                "📈 Posture score improved • 25 mins ago",
+                "🔥 Weekly progress updated • 1 hour ago",
+            ]
+
+        for text in activities:
+                lbl = QLabel(f"• {text}")
+                lbl.setStyleSheet("""
+                    padding: 6px;
+                    font-size: 11px;
+                    color: #dcdcdc;
+                """)
+                activity_layout.addWidget(lbl)
+                self._activity_labels.append(lbl)
+
+        charts_layout.addWidget(activity_group)
+            # Productivity insights section
+        insights_group = QGroupBox("Productivity Insights")
+        insights_layout = QVBoxLayout(insights_group)
+
+        self._insights_label = QLabel(
+                "You are maintaining strong posture consistency this week."
+                )
+
+        self._insights_label.setWordWrap(True)
+        self._insights_label.setStyleSheet("""
+                        font-size: 12px;
+                        color: #d0d0d0;
+                        padding: 10px;
+                        background-color: #252525;
+                        border-radius: 8px;
+                        border: 1px solid #3a3a3a;
+                    """)
+
+        insights_layout.addWidget(self._insights_label)
+
+        charts_layout.addWidget(insights_group)
 
         charts_layout.addStretch()
 
@@ -541,6 +592,21 @@ class DashboardWindow(QMainWindow):
                 break
         _set_card_value(self._card_streak, str(streak))
 
+        # Update productivity insights dynamically
+        if summary:
+            avg_score = int(summary.avg_posture_score * 100)
+
+            if avg_score >= 85:
+                insight = "Excellent posture consistency this week. Keep it up!"
+            elif avg_score >= 70:
+                insight = "Good productivity and posture balance maintained."
+            elif avg_score >= 50:
+                insight = "Posture is improving. Try taking regular breaks."
+            else:
+                insight = "Low posture score detected. Focus on healthier work habits."
+
+            self._insights_label.setText(insight)
+            
     def _refresh_hourly_chart(self) -> None:
         hourly = self._journal.get_hourly_posture_today()
         self._hourly_chart.set_data(hourly)
