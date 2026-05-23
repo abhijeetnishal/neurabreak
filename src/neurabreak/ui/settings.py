@@ -306,6 +306,12 @@ class SettingsWindow(QDialog):
             ui_form.addRow(
                 "", _hint("Launch NeuraBreak automatically at login (no admin rights needed).")
             )
+            self._startup_cb = QCheckBox()
+            self._startup_cb.setChecked(_startup.is_startup_enabled())
+            ui_form.addRow("Launch at Login:", self._startup_cb)
+            ui_form.addRow(
+                "", _hint("Launch NeuraBreak automatically when you log in (no admin rights needed).")
+            )
 
         self._tray_colors_cb = QCheckBox()
         self._tray_colors_cb.setChecked(self._config.ui.tray_icon_color_coding)

@@ -113,7 +113,14 @@ class FrameCaptureService:
                 try:
                     self._queue.put_nowait(frame)
                 except queue.Full:
-                    pass  # inference is still busy — drop this frame
+                    try:
+                        self._queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        self._queue.put_nowait(frame)
+                    except queue.Full:
+                        pass
                 self._stop_event.wait(timeout=interval)
         finally:
             cap.release()

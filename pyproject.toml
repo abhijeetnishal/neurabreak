@@ -18,7 +18,6 @@ dependencies = [
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "structlog>=24.0.0",
-    "colorama>=0.4.6; sys_platform == 'win32'",
     "colorama>=0.4.6",
 ]
 
@@ -45,6 +44,8 @@ system = [
     "pynput>=1.7.6",
     "transitions>=0.9.0",
     "windows-toasts>=1.1.0; sys_platform == 'win32'",
+    # macOS Notification Centre via UNUserNotificationCenter
+    "pyobjc-framework-UserNotifications>=9.0; sys_platform == 'darwin'",
 ]
 # Everything enabled at once
 full = [
@@ -59,7 +60,7 @@ dev = [
     "pre-commit>=3.7.0",
     "pip-audit>=2.7.0",
 ]
-# Windows packaging
+# Packaging (Windows + macOS)
 packaging = [
     "pyinstaller>=6.3.0",
 ]

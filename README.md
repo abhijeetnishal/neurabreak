@@ -309,7 +309,7 @@ uv run mypy src/
 - [ ] Auto-update checker via GitHub Releases
 - [ ] Windows autostart toggle
 - [ ] **Custom-trained YOLO26 posture model** — collect & annotate 1000+ frames per class
-- [ ] macOS packaging (`.app` bundle + DMG)
+- [x] macOS packaging (`.app` bundle + DMG)
 - [ ] Linux packaging (`.deb` / AppImage)
 - [ ] Plugin system (custom audio packs, exercise routines, themes)
 
