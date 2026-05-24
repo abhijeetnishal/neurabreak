@@ -15,9 +15,14 @@ def send_toast(title: str, message: str, urgency: str = "normal") -> None:
         message: Notification body.
         urgency: "low" | "normal" | "critical"
     """
-    # TODO:
-    # import notify2
-    # notify2.init("NeuraBreak")
-    # n = notify2.Notification(title, message)
-    # n.set_urgency({"low": 0, "normal": 1, "critical": 2}.get(urgency, 1))
-    # n.show()
+    try:
+        import notify2  # type: ignore[import-untyped]
+
+        notify2.init("NeuraBreak")
+        n = notify2.Notification(title, message)
+        n.set_urgency({"low": 0, "normal": 1, "critical": 2}.get(urgency, 1))
+        n.show()
+    except Exception as e:
+        log.warning("linux_toast_failed", error=str(e))
+
+
