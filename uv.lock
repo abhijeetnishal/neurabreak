@@ -1884,6 +1884,7 @@ full = [
     { name = "plyer" },
     { name = "psutil" },
     { name = "pynput" },
+    { name = "pyobjc-framework-usernotifications", marker = "sys_platform == 'darwin'" },
     { name = "sounddevice" },
     { name = "soundfile" },
     { name = "sqlalchemy" },
@@ -1898,6 +1899,7 @@ system = [
     { name = "plyer" },
     { name = "psutil" },
     { name = "pynput" },
+    { name = "pyobjc-framework-usernotifications", marker = "sys_platform == 'darwin'" },
     { name = "transitions" },
     { name = "windows-toasts", marker = "sys_platform == 'win32'" },
 ]
@@ -1914,7 +1916,6 @@ training = [
 requires-dist = [
     { name = "albumentations", marker = "extra == 'training'", specifier = ">=1.3.0" },
     { name = "colorama", specifier = ">=0.4.6" },
-    { name = "colorama", marker = "sys_platform == 'win32'", specifier = ">=0.4.6" },
     { name = "jupyter", marker = "extra == 'training'", specifier = ">=1.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.9.0" },
     { name = "neurabreak", extras = ["ai", "audio", "data", "system"], marker = "extra == 'full'" },
@@ -1928,6 +1929,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pyinstaller", marker = "extra == 'packaging'", specifier = ">=6.3.0" },
     { name = "pynput", marker = "extra == 'system'", specifier = ">=1.7.6" },
+    { name = "pyobjc-framework-usernotifications", marker = "sys_platform == 'darwin' and extra == 'system'", specifier = ">=9.0" },
     { name = "pyside6", specifier = ">=6.6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-qt", marker = "extra == 'dev'", specifier = ">=4.3.0" },
@@ -3051,6 +3053,24 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/67/43/b1f0ad3b842ab150a7e6b7d97f6257eab6af241b4c7d14cb8e7fde9214b8/pyobjc_framework_quartz-12.1-cp313-cp313t-macosx_10_13_universal2.whl", hash = "sha256:53b84e880c358ba1ddcd7e8d5ea0407d760eca58b96f0d344829162cda5f37b3", size = 224317, upload-time = "2025-11-14T10:00:30.703Z" },
     { url = "https://files.pythonhosted.org/packages/4a/00/96249c5c7e5aaca5f688ca18b8d8ad05cd7886ebd639b3c71a6a4cadbe75/pyobjc_framework_quartz-12.1-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:42d306b07f05ae7d155984503e0fb1b701fecd31dcc5c79fe8ab9790ff7e0de0", size = 219558, upload-time = "2025-11-14T10:00:45.476Z" },
     { url = "https://files.pythonhosted.org/packages/4d/a6/708a55f3ff7a18c403b30a29a11dccfed0410485a7548c60a4b6d4cc0676/pyobjc_framework_quartz-12.1-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:0cc08fddb339b2760df60dea1057453557588908e42bdc62184b6396ce2d6e9a", size = 224580, upload-time = "2025-11-14T10:01:00.091Z" },
+]
+
+[[package]]
+name = "pyobjc-framework-usernotifications"
+version = "12.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyobjc-core", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/90/cd/e0253072f221fa89a42fe53f1a2650cc9bf415eb94ae455235bd010ee12e/pyobjc_framework_usernotifications-12.1.tar.gz", hash = "sha256:019ccdf2d400f9a428769df7dba4ea97c02453372bc5f8b75ce7ae54dfe130f9", size = 29749, upload-time = "2025-11-14T10:23:05.364Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/96/aa25bb0727e661a352d1c52e7288e25c12fe77047f988bb45557c17cf2d7/pyobjc_framework_usernotifications-12.1-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:c62e8d7153d72c4379071e34258aa8b7263fa59212cfffd2f137013667e50381", size = 9632, upload-time = "2025-11-14T10:05:55.166Z" },
+    { url = "https://files.pythonhosted.org/packages/61/ad/c95053a475246464cba686e16269b0973821601910d1947d088b855a8dac/pyobjc_framework_usernotifications-12.1-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:412afb2bf5fe0049f9c4e732e81a8a35d5ebf97c30a5a6abd276259d020c82ac", size = 9644, upload-time = "2025-11-14T10:05:56.801Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/cc/4c6efe6a65b1742ea238734f81509ceba5346b45f605baa809ca63f30692/pyobjc_framework_usernotifications-12.1-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:40a5457f4157ca007f80f0644413f44f0dc141f7864b28e1728623baf56a8539", size = 9659, upload-time = "2025-11-14T10:05:58.763Z" },
+    { url = "https://files.pythonhosted.org/packages/06/4e/02ff6975567974f360cf0e1e358236026e35f7ba7795511bc4dcbaa13f62/pyobjc_framework_usernotifications-12.1-cp313-cp313t-macosx_10_13_universal2.whl", hash = "sha256:58c09bd1bd7a8cd29613d0d0e6096eda6c8465dc5a7a733675e1b8d0406f7adc", size = 9811, upload-time = "2025-11-14T10:06:00.775Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/1a/caa96066b36c2c20ba6f033857fc24ff8e6b5811cf1bc112818928d27216/pyobjc_framework_usernotifications-12.1-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:cc69e2aed9b55296a447f2fb69cc52a1a026c50e46253dbf482f5807bce3ae7c", size = 9720, upload-time = "2025-11-14T10:06:02.409Z" },
+    { url = "https://files.pythonhosted.org/packages/95/f7/8def35e9e7b2a7a7d4e61923b0f29fcdca70df5ac6b91cddb418a1d5ffed/pyobjc_framework_usernotifications-12.1-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:0746d2a67ca05ae907b7551ccd3a534e9d6e76115882ab962365f9ad259c4032", size = 9876, upload-time = "2025-11-14T10:06:04.07Z" },
 ]
 
 [[package]]

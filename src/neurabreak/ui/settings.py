@@ -233,6 +233,8 @@ class SettingsWindow(QDialog):
 
     # Tab: General
 
+    # Tab: General
+
     def _tab_general(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
@@ -245,34 +247,34 @@ class SettingsWindow(QDialog):
 
         self._interval_spin = QSpinBox()
         self._interval_spin.setRange(5, 180)
-        self._interval_spin.setSuffix("  min")
+        self._interval_spin.setSuffix("   min")
         self._interval_spin.setValue(self._config.breaks.interval_min)
         form.addRow("Break every:", self._interval_spin)
         form.addRow("", _hint("How long between break reminders (5–180 min)."))
 
         self._duration_spin = QSpinBox()
         self._duration_spin.setRange(1, 30)
-        self._duration_spin.setSuffix("  min")
+        self._duration_spin.setSuffix("   min")
         self._duration_spin.setValue(self._config.breaks.duration_min)
         form.addRow("Break duration:", self._duration_spin)
 
         self._posture_alert_spin = QSpinBox()
         self._posture_alert_spin.setRange(10, 300)
-        self._posture_alert_spin.setSuffix("  sec")
+        self._posture_alert_spin.setSuffix("   sec")
         self._posture_alert_spin.setValue(self._config.breaks.posture_alert_sec)
         form.addRow("Posture alert after:", self._posture_alert_spin)
         form.addRow("", _hint("Alert when bad posture has lasted this many seconds."))
 
         self._smart_pause_spin = QSpinBox()
         self._smart_pause_spin.setRange(5, 300)
-        self._smart_pause_spin.setSuffix("  sec")
+        self._smart_pause_spin.setSuffix("   sec")
         self._smart_pause_spin.setValue(self._config.breaks.smart_pause_sec)
         form.addRow("Smart pause after:", self._smart_pause_spin)
         form.addRow("", _hint("Pause the session timer when no one is at the desk for this long."))
 
         self._eye_interval_spin = QSpinBox()
         self._eye_interval_spin.setRange(0, 60)
-        self._eye_interval_spin.setSuffix("  min")
+        self._eye_interval_spin.setSuffix("   min")
         self._eye_interval_spin.setValue(self._config.breaks.eye_break_interval_min)
         form.addRow("Eye break every:", self._eye_interval_spin)
         form.addRow(
@@ -282,11 +284,44 @@ class SettingsWindow(QDialog):
 
         self._eye_duration_spin = QSpinBox()
         self._eye_duration_spin.setRange(5, 120)
-        self._eye_duration_spin.setSuffix("  sec")
+        self._eye_duration_spin.setSuffix("   sec")
         self._eye_duration_spin.setValue(self._config.breaks.eye_break_duration_sec)
         form.addRow("Eye break duration:", self._eye_duration_spin)
 
         layout.addWidget(group)
+
+        # New Performance Group Box
+        perf_group = QGroupBox("AI Optimization & Performance")
+        perf_form = QFormLayout(perf_group)
+        perf_form.setSpacing(10)
+
+        # Motion Sensitivity Slider
+        motion_row = QHBoxLayout()
+        self._skip_thresh_slider = QSlider(Qt.Orientation.Horizontal)
+        self._skip_thresh_slider.setRange(0, 300)  # Maps 0.0 to 30.0
+        current_thresh = getattr(self._config.detection, "frame_skip_threshold", 8.0)
+        self._skip_thresh_slider.setValue(int(current_thresh * 10))
+        
+        self._skip_thresh_lbl = QLabel(f"{current_thresh:.1f}")
+        self._skip_thresh_lbl.setFixedWidth(36)
+        self._skip_thresh_slider.valueChanged.connect(
+            lambda v: self._skip_thresh_lbl.setText(f"{v / 10.0:.1f}")
+        )
+        motion_row.addWidget(self._skip_thresh_slider)
+        motion_row.addWidget(self._skip_thresh_lbl)
+        perf_form.addRow("Static frame threshold:", motion_row)
+        perf_form.addRow("", _hint("Higher numbers skip more models when you aren't moving. Set to 0.0 to disable optimization."))
+
+        # Max Throttled Skip Duration SpinBox
+        self._max_skip_duration_spin = QSpinBox()
+        self._max_skip_duration_spin.setRange(1, 30)
+        self._max_skip_duration_spin.setSuffix("   sec")
+        current_duration = getattr(self._config.detection, "max_skip_duration_seconds", 5)
+        self._max_skip_duration_spin.setValue(current_duration)
+        perf_form.addRow("Force evaluation after:", self._max_skip_duration_spin)
+        perf_form.addRow("", _hint("Maximum duration to throttle background model inference when completely still before checking anyway."))
+
+        layout.addWidget(perf_group)
 
         ui_group = QGroupBox("Interface")
         ui_form = QFormLayout(ui_group)
@@ -329,6 +364,63 @@ class SettingsWindow(QDialog):
         layout.addWidget(ui_group)
         layout.addStretch()
         return w
+
+    def _on_save(self) -> None:
+        """Write changed values back to config and persist to disk."""
+        cfg = self._config
+
+        # General
+        cfg.breaks.interval_min = self._interval_spin.value()
+        cfg.breaks.duration_min = self._duration_spin.value()
+        cfg.breaks.posture_alert_sec = self._posture_alert_spin.value()
+        cfg.breaks.smart_pause_sec = self._smart_pause_spin.value()
+        cfg.breaks.eye_break_interval_min = self._eye_interval_spin.value()
+        cfg.breaks.eye_break_duration_sec = self._eye_duration_spin.value()
+        
+        # Save performance tweaks safely back to the configuration block
+        setattr(cfg.detection, "frame_skip_threshold", self._skip_thresh_slider.value() / 10.0)
+        setattr(cfg.detection, "max_skip_duration_seconds", self._max_skip_duration_spin.value())
+
+        cfg.ui.start_minimized = self._start_minimized_cb.isChecked()
+        cfg.ui.tray_icon_color_coding = self._tray_colors_cb.isChecked()
+        cfg.ui.show_preview_on_start = self._show_preview_cb.isChecked()
+        cfg.ui.theme = self._theme_combo.currentText()
+
+        # Windows autostart — write registry immediately on save
+        if self._startup_cb is not None:
+            from neurabreak.core.startup import set_startup
+            set_startup(self._startup_cb.isChecked())
+
+        # Notifications
+        cfg.escalation.level_2_delay_min = self._lvl2_spin.value()
+        cfg.escalation.level_3_delay_min = self._lvl3_spin.value()
+        cfg.escalation.mandatory_break = self._mandatory_cb.isChecked()
+        cfg.escalation.respect_focus_mode = self._focus_mode_cb.isChecked()
+        cfg.dark_hours.enabled = self._dark_enabled_cb.isChecked()
+        cfg.dark_hours.start_hour = self._dark_start_spin.value()
+        cfg.dark_hours.end_hour = self._dark_end_spin.value()
+        cfg.dark_hours.reduce_volume = self._dark_volume_cb.isChecked()
+        cfg.dark_hours.stricter_posture = self._dark_strict_posture_cb.isChecked()
+
+        # Audio
+        cfg.audio.enabled = self._audio_enabled_cb.isChecked()
+        cfg.audio.volume = self._volume_slider.value()
+        audio_errors = self._validate_custom_sounds_for_save()
+        if audio_errors:
+            QMessageBox.warning(
+                self,
+                "Invalid audio settings",
+                "Fix these custom audio files before saving:\n\n" + "\n".join(audio_errors),
+            )
+            return
+
+        try:
+            self._write_config_to_disk(cfg)
+            self.config_manager._config = cfg
+            bus.publish(Event(EventType.CONFIG_CHANGED, {"config": cfg}))
+            self.accept()
+        except Exception as exc:
+            QMessageBox.critical(self, "Save failed", str(exc))
 
     # Tab: Notifications
 
