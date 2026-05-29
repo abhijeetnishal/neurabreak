@@ -65,7 +65,6 @@ class DetectionService:
 
         # Frame-skip state — grayscale of the previous frame for diff comparison
         self._prev_gray = None
-        self._consecutive_static_skips = 0
 
         # Cached stable result used on skipped frames
         self._cached_presence: bool = False
@@ -128,12 +127,14 @@ class DetectionService:
         self.engine.load()
         bus.publish(Event(EventType.MODEL_LOADED))
 
-        skip_threshold = getattr(self.config.detection, "frame_skip_threshold", 8.0)
-        fps = max(1, int(getattr(self.config.detection, "fps", 5)))
-        # Allow a few static-frame skips, then force one inference
-        max_static_skips = max(1, int(round(fps * 0.6)))
+        # Track the monotonic timestamp of the last executed model evaluation
+        last_inference_time = time.monotonic()
 
         while not self._stop_event.is_set():
+            # Dynamically fetch parameters inside the loop to react live to UI modifications
+            skip_threshold = getattr(self.config.detection, "frame_skip_threshold", 8.0)
+            max_skip_duration = getattr(self.config.detection, "max_skip_duration_seconds", 5)
+
             frame = self.camera.get_frame(timeout=0.5)
             if frame is None:
                 continue  # timed out waiting for a frame, loop again
@@ -149,9 +150,12 @@ class DetectionService:
                     if self._prev_gray is not None and gray.shape == self._prev_gray.shape:
                         diff = cv2.absdiff(gray, self._prev_gray)
                         is_static_scene = float(np.mean(diff)) < skip_threshold
-                        if is_static_scene and self._consecutive_static_skips < max_static_skips:
+                        
+                        # Real-time tracking check to guarantee evaluation after max duration bounds
+                        time_since_last_infer = time.monotonic() - last_inference_time
+                        
+                        if is_static_scene and time_since_last_infer < max_skip_duration:
                             self._frames_skipped += 1
-                            self._consecutive_static_skips += 1
 
                             # Keep preview responsive with the latest known boxes.
                             sink = self._frame_sink
@@ -173,13 +177,12 @@ class DetectionService:
                             self._prev_gray = gray
                             continue
 
-                    self._consecutive_static_skips = 0
                     self._prev_gray = gray
                 except Exception:  # noqa: BLE001
-                    self._consecutive_static_skips = 0
                     pass  # cv2 unavailable or shape mismatch — just run inference
 
             result = self.engine.infer(frame)
+            last_inference_time = time.monotonic()  # Reset structural evaluation timestamp
             self._last_latency_ms = result.latency_ms
             self._frames_processed += 1
 
@@ -206,7 +209,7 @@ class DetectionService:
             )
 
             # Posture-class debounce: nano/small models can flicker between classes
-            # on back-to-back frames.  Require the same bad-posture label for
+            # on back-to-back frames. Require the same bad-posture label for
             # consecutive_frames frames before it reaches the state machine.
             _GOOD_CLASSES: frozenset[str | None] = frozenset(
                 {"posture_good", "face_present", "person_absent", None}
